@@ -607,7 +607,6 @@ class AnthropicOAuthLLM(CustomLLM):
             raise RuntimeError("Login failed.")
         finally:
             self.authorize_url = original_authorize_url
-        
 
     def _resolve_access_token(self) -> str:
         env_access_token = os.environ.get("ANTHROPIC_OAUTH_TOKEN")

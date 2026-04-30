@@ -3,7 +3,6 @@ import hashlib
 import json
 import os
 import secrets
-import socket
 import sys
 import threading
 import time
