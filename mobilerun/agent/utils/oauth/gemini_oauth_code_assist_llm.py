@@ -78,9 +78,13 @@ def _normalize_manual_code(raw: str, expected_state: str) -> str:
 
     first_token = value.split()[0]
 
-    if "code=" in first_token:
+    if "error=" in first_token or "code=" in first_token:
         parsed = urlparse(first_token)
         params = parse_qs(parsed.query)
+        error = params.get("error", [None])[0]
+        if error:
+            desc = params.get("error_description", [error])[0]
+            raise RuntimeError(f"OAuth error: {desc}")
         code = params.get("code", [None])[0]
         state_from_url = params.get("state", [None])[0]
         if state_from_url and state_from_url != expected_state:
