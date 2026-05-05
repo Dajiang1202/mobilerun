@@ -185,9 +185,10 @@ def _poll_device_code(
     interval: int,
     http_client: Optional[httpx.Client] = None,
     request_timeout: float = 15.0,
+    timeout_seconds: float = _DEVICE_CODE_TIMEOUT,
 ) -> dict:
     url = f"{issuer.rstrip('/')}/api/accounts/deviceauth/token"
-    deadline = time.time() + _DEVICE_CODE_TIMEOUT
+    deadline = time.time() + min(timeout_seconds, _DEVICE_CODE_TIMEOUT)
     post = http_client.post if http_client is not None else httpx.post
 
     while time.time() < deadline:
@@ -638,7 +639,7 @@ class OpenAIOAuth(OpenAI):
         ).lower() in ("1", "true", "yes")
         if use_device_code:
             try:
-                return self.login_device_code()
+                return self.login_device_code(timeout_seconds=timeout_seconds)
             except _DeviceCodeNotSupported:
                 return self.login_manual(
                     open_browser=False,
@@ -740,7 +741,11 @@ class OpenAIOAuth(OpenAI):
             httpd.shutdown()
             httpd.server_close()
 
-    def login_device_code(self) -> OpenAIOAuthCredentials:
+    def login_device_code(
+        self,
+        *,
+        timeout_seconds: float = _DEVICE_CODE_TIMEOUT,
+    ) -> OpenAIOAuthCredentials:
         """Device Code login for headless/SSH environments.
 
         Uses the OAuth 2.0 Device Authorization Grant (RFC 8628). The user
@@ -780,6 +785,7 @@ class OpenAIOAuth(OpenAI):
             interval,
             http_client=http_client,
             request_timeout=mgr.request_timeout,
+            timeout_seconds=timeout_seconds,
         )
 
         redirect_uri = f"{mgr.issuer}/deviceauth/callback"
