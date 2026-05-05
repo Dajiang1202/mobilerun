@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+import queue
 import secrets
 import sys
 import threading
@@ -644,17 +645,15 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         if open_browser:
             webbrowser.open(auth_url)
 
-        import queue as _queue
-
         deadline = time.time() + timeout_seconds
-        input_queue: _queue.Queue[Optional[str]] = _queue.Queue()
+        input_queue: queue.Queue[Optional[str]] = queue.Queue()
         stop = threading.Event()
         need_more = threading.Event()
-        need_more.set()
 
         def _reader() -> None:
             for _ in range(2):
                 need_more.wait()
+                need_more.clear()
                 if stop.is_set():
                     return
                 try:
@@ -671,19 +670,18 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                 if remaining <= 0:
                     raise TimeoutError("OAuth login timed out.")
 
+                need_more.set()
+
                 try:
                     raw = input_queue.get(timeout=remaining)
-                except _queue.Empty:
+                except queue.Empty:
                     raise TimeoutError("OAuth login timed out.")
-
-                need_more.clear()
 
                 if raw is None:
                     raise RuntimeError("Login failed — stdin closed.")
                 if not raw.strip():
                     if attempt == 0:
                         print("No code entered. Try again.")
-                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 try:
@@ -691,7 +689,6 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                 except Exception:  # noqa: BLE001
                     if attempt == 0:
                         print("Invalid code. Try again.")
-                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 if code:
@@ -700,11 +697,13 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                     )
                 if attempt == 0:
                     print("Invalid code. Try again.")
-                    need_more.set()
                     continue
                 raise RuntimeError("Login failed.")
             raise RuntimeError("Login failed.")
         finally:
+            # stop.set() prevents the reader from starting a new input() call.
+            # It cannot interrupt an input() already in progress (Python limitation);
+            # the daemon thread dies with the process.
             stop.set()
             need_more.set()
 

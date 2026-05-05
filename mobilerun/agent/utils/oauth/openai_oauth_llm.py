@@ -18,6 +18,7 @@ import base64
 import hashlib
 import json
 import os
+import queue
 import secrets
 import sys
 import threading
@@ -781,12 +782,15 @@ class OpenAIOAuth(OpenAI):
             interval = int(str(device_resp.get("interval", "5")).strip())
         except (TypeError, ValueError):
             interval = 5
-        # Prefer server-provided URL if present, fall back to issuer default.
         verification_url = (
             device_resp.get("verification_uri")
             or device_resp.get("verification_url")
-            or f"{mgr.issuer}/codex/device"
         )
+        if not verification_url:
+            raise RuntimeError(
+                "Device code response did not include a verification URL. "
+                "The server may not support this login flow."
+            )
 
         print(
             f"\nSign in with your ChatGPT account:\n"
@@ -814,6 +818,8 @@ class OpenAIOAuth(OpenAI):
         if creds.account_id:
             object.__setattr__(self, "_oauth_account_id", creds.account_id)
         return creds
+
+    login_headless = login_device_code
 
     def login_manual(
         self,
@@ -843,17 +849,15 @@ class OpenAIOAuth(OpenAI):
         if open_browser:
             webbrowser.open(auth_url)
 
-        import queue as _queue
-
         deadline = time.time() + timeout_seconds
-        input_queue: _queue.Queue[Optional[str]] = _queue.Queue()
+        input_queue: queue.Queue[Optional[str]] = queue.Queue()
         stop = threading.Event()
         need_more = threading.Event()
-        need_more.set()
 
         def _reader() -> None:
             for _ in range(2):
                 need_more.wait()
+                need_more.clear()
                 if stop.is_set():
                     return
                 try:
@@ -870,19 +874,18 @@ class OpenAIOAuth(OpenAI):
                 if remaining <= 0:
                     raise TimeoutError("OAuth login timed out.")
 
+                need_more.set()
+
                 try:
                     raw = input_queue.get(timeout=remaining)
-                except _queue.Empty:
+                except queue.Empty:
                     raise TimeoutError("OAuth login timed out.")
-
-                need_more.clear()
 
                 if raw is None:
                     raise RuntimeError("Login failed — stdin closed.")
                 if not raw.strip():
                     if attempt == 0:
                         print("Invalid paste. Try again.")
-                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 try:
@@ -890,7 +893,6 @@ class OpenAIOAuth(OpenAI):
                 except Exception:  # noqa: BLE001
                     if attempt == 0:
                         print("Invalid paste. Try again.")
-                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 if code:
@@ -904,11 +906,13 @@ class OpenAIOAuth(OpenAI):
                     return creds
                 if attempt == 0:
                     print("Invalid paste. Try again.")
-                    need_more.set()
                     continue
                 raise RuntimeError("Login failed.")
             raise RuntimeError("Login failed.")
         finally:
+            # stop.set() prevents the reader from starting a new input() call.
+            # It cannot interrupt an input() already in progress (Python limitation);
+            # the daemon thread dies with the process.
             stop.set()
             need_more.set()
 
