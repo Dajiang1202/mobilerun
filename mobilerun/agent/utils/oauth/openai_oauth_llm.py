@@ -201,7 +201,10 @@ def _poll_device_code(
         )
         if response.status_code == 200:
             return response.json()
-      
+        # OpenAI returns 403/404 while the user hasn't completed browser auth.
+        # This differs from RFC 8628's 400 + authorization_pending body, but
+        # matches the observed behaviour of auth.openai.com/api/accounts/deviceauth/token.
+        # TODO: handle slow_down (RFC 8628 §3.5) by increasing interval.
         if response.status_code in (403, 404):
             remaining = deadline - time.time()
             if remaining <= 0:
@@ -758,6 +761,9 @@ class OpenAIOAuth(OpenAI):
         one-time code. The CLI polls until the auth completes — no redirect
         back to localhost needed.
 
+        timeout_seconds is capped at _DEVICE_CODE_TIMEOUT (15 min) because
+        the server-issued code expires after that window.
+
         Raises _DeviceCodeNotSupported if the server returns 404.
         """
         mgr = self._oauth_manager
@@ -842,9 +848,12 @@ class OpenAIOAuth(OpenAI):
         deadline = time.time() + timeout_seconds
         input_queue: _queue.Queue[Optional[str]] = _queue.Queue()
         stop = threading.Event()
+        need_more = threading.Event()
+        need_more.set()
 
         def _reader() -> None:
             for _ in range(2):
+                need_more.wait()
                 if stop.is_set():
                     return
                 try:
@@ -866,11 +875,14 @@ class OpenAIOAuth(OpenAI):
                 except _queue.Empty:
                     raise TimeoutError("OAuth login timed out.")
 
+                need_more.clear()
+
                 if raw is None:
                     raise RuntimeError("Login failed — stdin closed.")
                 if not raw.strip():
                     if attempt == 0:
                         print("Invalid paste. Try again.")
+                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 try:
@@ -878,6 +890,7 @@ class OpenAIOAuth(OpenAI):
                 except Exception:  # noqa: BLE001
                     if attempt == 0:
                         print("Invalid paste. Try again.")
+                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 if code:
@@ -891,11 +904,13 @@ class OpenAIOAuth(OpenAI):
                     return creds
                 if attempt == 0:
                     print("Invalid paste. Try again.")
+                    need_more.set()
                     continue
                 raise RuntimeError("Login failed.")
             raise RuntimeError("Login failed.")
         finally:
             stop.set()
+            need_more.set()
 
     def _ensure_access_token(self) -> OpenAIOAuthCredentials:
         creds = self._oauth_manager.get_valid_credentials(skew_ms=self._oauth_refresh_skew_ms)

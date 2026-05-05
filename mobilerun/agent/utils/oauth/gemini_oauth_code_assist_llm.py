@@ -649,9 +649,12 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         deadline = time.time() + timeout_seconds
         input_queue: _queue.Queue[Optional[str]] = _queue.Queue()
         stop = threading.Event()
+        need_more = threading.Event()
+        need_more.set()
 
         def _reader() -> None:
             for _ in range(2):
+                need_more.wait()
                 if stop.is_set():
                     return
                 try:
@@ -673,11 +676,14 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                 except _queue.Empty:
                     raise TimeoutError("OAuth login timed out.")
 
+                need_more.clear()
+
                 if raw is None:
                     raise RuntimeError("Login failed — stdin closed.")
                 if not raw.strip():
                     if attempt == 0:
                         print("No code entered. Try again.")
+                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 try:
@@ -685,6 +691,7 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                 except Exception:  # noqa: BLE001
                     if attempt == 0:
                         print("Invalid code. Try again.")
+                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 if code:
@@ -693,11 +700,15 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                     )
                 if attempt == 0:
                     print("Invalid code. Try again.")
+                    need_more.set()
                     continue
                 raise RuntimeError("Login failed.")
             raise RuntimeError("Login failed.")
         finally:
             stop.set()
+            need_more.set()
+
+    login_manual = login_headless
 
     def _resolve_access_token(self) -> str:
         env_access_token = os.environ.get("GEMINI_OAUTH_ACCESS_TOKEN")

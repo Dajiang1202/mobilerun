@@ -556,9 +556,12 @@ class AnthropicOAuthLLM(CustomLLM):
             deadline = time.time() + timeout_seconds
             input_queue: _queue.Queue[Optional[str]] = _queue.Queue()
             stop = threading.Event()
+            need_more = threading.Event()
+            need_more.set()
 
             def _reader() -> None:
                 for _ in range(2):
+                    need_more.wait()
                     if stop.is_set():
                         return
                     try:
@@ -580,11 +583,14 @@ class AnthropicOAuthLLM(CustomLLM):
                     except _queue.Empty:
                         raise TimeoutError("OAuth login timed out.")
 
+                    need_more.clear()
+
                     if raw is None:
                         raise RuntimeError("Login failed — stdin closed.")
                     if not raw.strip():
                         if attempt == 0:
                             print("No code entered. Try again.")
+                            need_more.set()
                             continue
                         raise RuntimeError("Login failed.")
                     try:
@@ -592,6 +598,7 @@ class AnthropicOAuthLLM(CustomLLM):
                     except Exception:  # noqa: BLE001
                         if attempt == 0:
                             print("Invalid code. Try again.")
+                            need_more.set()
                             continue
                         raise RuntimeError("Login failed.")
                     if code:
@@ -604,13 +611,17 @@ class AnthropicOAuthLLM(CustomLLM):
                         )
                     if attempt == 0:
                         print("Invalid code. Try again.")
+                        need_more.set()
                         continue
                     raise RuntimeError("Login failed.")
                 raise RuntimeError("Login failed.")
             finally:
                 stop.set()
+                need_more.set()
         finally:
             self.authorize_url = original_authorize_url
+
+    login_manual = login_headless
 
     def _resolve_access_token(self) -> str:
         env_access_token = os.environ.get("ANTHROPIC_OAUTH_TOKEN")
