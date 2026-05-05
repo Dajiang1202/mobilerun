@@ -518,9 +518,19 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         callback_path: str = "/oauth2callback",
         prompt_consent: bool = True,
     ) -> str:
+        # Headless environments: use authcode redirect flow (no local server)
+        use_authcode = _is_headless_environment() or os.environ.get(
+            "DROIDRUN_OAUTH_MANUAL", ""
+        ).lower() in ("1", "true", "yes")
+        if use_authcode:
+            return self.login_headless(
+                open_browser=open_browser,
+                timeout_seconds=timeout_seconds,
+                prompt_consent=prompt_consent,
+            )
+
+        # Desktop: browser callback server
         result: Dict[str, Optional[str]] = {"code": None, "state": None, "error": None}
-        manual_code: Dict[str, Optional[str]] = {"code": None}
-        manual_failed = threading.Event()
         done = threading.Event()
         expected_state = secrets.token_hex(32)
         code_verifier, code_challenge = _pkce_pair()
@@ -562,8 +572,10 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                 f"Could not bind callback server on {callback_host}:{callback_port} ({exc}). "
                 "Falling back to manual code entry."
             )
-            return self.login_manual(
-                open_browser=open_browser, prompt_consent=prompt_consent
+            return self.login_headless(
+                open_browser=open_browser,
+                timeout_seconds=timeout_seconds,
+                prompt_consent=prompt_consent,
             )
 
         actual_port = httpd.server_address[1]
@@ -583,94 +595,39 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
             if open_browser:
                 webbrowser.open(auth_url)
 
-            # Only run the manual-paste race when we can't rely on the local
-            # browser callback: headless envs (SSH/WSL/no-display), or when the
-            # user explicitly opts in with DROIDRUN_OAUTH_MANUAL=1. On a normal
-            # desktop the server always wins anyway, and a blocked input()
-            # thread would intercept InquirerPy's terminal queries and lag the
-            # configure wizard.
-            enable_manual = _is_headless_environment() or os.environ.get(
-                "DROIDRUN_OAUTH_MANUAL", ""
-            ).lower() in ("1", "true", "yes")
-            if enable_manual:
-                def _read_manual() -> None:
-                    for attempt in range(2):
-                        if done.is_set():
-                            return
-                        try:
-                            raw = str(input("Or paste the redirect URL / authorization code: "))
-                        except Exception:
-                            return
-                        if done.is_set():
-                            return
-                        if not raw.strip():
-                            if attempt == 0:
-                                print("Invalid paste. Try again.")
-                                continue
-                            if not done.is_set():
-                                manual_failed.set()
-                                done.set()
-                            return
-                        try:
-                            code = _normalize_manual_code(raw, expected_state)
-                        except Exception:  # noqa: BLE001
-                            if attempt == 0:
-                                print("Invalid paste. Try again.")
-                                continue
-                            print("Invalid paste.")
-                            if not done.is_set():
-                                manual_failed.set()
-                                done.set()
-                            return
-                        if code:
-                            manual_code["code"] = code
-                            done.set()
-                            return
-
-                manual_thread = threading.Thread(target=_read_manual, daemon=True)
-                manual_thread.start()
-
             if not done.wait(timeout=timeout_seconds):
                 raise TimeoutError("OAuth login timed out before callback was received.")
 
-            if manual_failed.is_set():
-                raise RuntimeError("Login failed.")
-
-            if manual_code["code"]:
-                code_to_exchange = manual_code["code"]
-            else:
-                if result["error"]:
-                    raise RuntimeError(f"OAuth callback returned error: {result['error']}")
-                if result["state"] != expected_state:
-                    raise RuntimeError("OAuth callback state mismatch.")
-                if not result["code"]:
-                    raise RuntimeError("OAuth callback did not include an authorization code.")
-                code_to_exchange = result["code"]
+            if result["error"]:
+                raise RuntimeError(f"OAuth callback returned error: {result['error']}")
+            if result["state"] != expected_state:
+                raise RuntimeError("OAuth callback state mismatch.")
+            if not result["code"]:
+                raise RuntimeError("OAuth callback did not include an authorization code.")
 
             return self._exchange_authorization_code(
-                code_to_exchange, redirect_uri, code_verifier=code_verifier
+                result["code"], redirect_uri, code_verifier=code_verifier
             )
         finally:
             httpd.shutdown()
             httpd.server_close()
 
-    def login_manual(
+    def login_headless(
         self,
         *,
-        open_browser: bool = True,
+        open_browser: bool = False,
+        timeout_seconds: float = 300.0,
         input_fn: Any = input,
         prompt_consent: bool = True,
     ) -> str:
-        """Manual OAuth flow for headless/VPS/WSL environments.
+        """Headless OAuth flow for SSH/WSL environments.
 
-        Opens (or prints) the auth URL and prompts the user to paste the
-        redirected URL or bare authorization code from the browser.
+        Redirects to Google's authcode page which displays the authorization
+        code on screen. The user copies that short code back to the terminal.
         """
         code_verifier, code_challenge = _pkce_pair()
         expected_state = secrets.token_hex(32)
-        # Google allows any loopback redirect for installed apps. The browser
-        # will fail to load the page, but the URL bar will contain the code.
-        redirect_uri = "http://localhost/oauth2callback"
+        redirect_uri = "https://codeassist.google.com/authcode"
 
         auth_url = self._build_auth_url(
             redirect_uri=redirect_uri,
@@ -679,22 +636,31 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
             code_challenge=code_challenge,
         )
 
-        print(f"Open this URL to login:\n{auth_url}")
+        print(
+            f"\nSign in with your Google account:\n"
+            f"\n1. Open this link in your browser:\n   {auth_url}\n"
+            f"\n2. Complete sign-in, then paste the authorization code shown on the page.\n"
+        )
         if open_browser:
             webbrowser.open(auth_url)
 
+        deadline = time.time() + timeout_seconds
+
         for attempt in range(2):
-            raw = str(input_fn("Paste the redirect URL or authorization code: "))
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                raise TimeoutError("OAuth login timed out.")
+            raw = str(input_fn("Enter the authorization code: "))
             if not raw.strip():
                 if attempt == 0:
-                    print("Invalid paste. Try again.")
+                    print("No code entered. Try again.")
                     continue
                 raise RuntimeError("Login failed.")
             try:
                 code = _normalize_manual_code(raw, expected_state)
             except Exception:  # noqa: BLE001
                 if attempt == 0:
-                    print("Invalid paste. Try again.")
+                    print("Invalid code. Try again.")
                     continue
                 raise RuntimeError("Login failed.")
             if code:
@@ -702,7 +668,7 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                     code, redirect_uri, code_verifier=code_verifier
                 )
             if attempt == 0:
-                print("Invalid paste. Try again.")
+                print("Invalid code. Try again.")
                 continue
             raise RuntimeError("Login failed.")
         raise RuntimeError("Login failed.")
