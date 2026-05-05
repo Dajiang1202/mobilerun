@@ -647,7 +647,7 @@ class OpenAIOAuth(OpenAI):
         if use_device_code:
             try:
                 return self.login_device_code(timeout_seconds=timeout_seconds)
-            except _DeviceCodeNotSupported:
+            except (_DeviceCodeNotSupported, httpx.HTTPStatusError, httpx.ConnectError, RuntimeError):
                 return self.login_manual(
                     open_browser=open_browser,
                     timeout_seconds=timeout_seconds,
