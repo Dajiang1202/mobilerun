@@ -149,6 +149,67 @@ def _tls_preflight(issuer: str, timeout: float = 5.0) -> None:
         print(f"Warning: TLS preflight check encountered an error: {exc}")
 
 
+class _DeviceCodeNotSupported(Exception):
+    pass
+
+
+def _request_device_code(
+    issuer: str,
+    client_id: str,
+    http_client: Optional[httpx.Client] = None,
+    request_timeout: float = 15.0,
+) -> dict:
+    url = f"{issuer.rstrip('/')}/api/accounts/deviceauth/usercode"
+    post = http_client.post if http_client is not None else httpx.post
+    response = post(
+        url,
+        headers={"Content-Type": "application/json"},
+        json={"client_id": client_id},
+        timeout=request_timeout,
+    )
+    if response.status_code == 404:
+        raise _DeviceCodeNotSupported(
+            "Device code login is not enabled for this server."
+        )
+    response.raise_for_status()
+    return response.json()
+
+
+_DEVICE_CODE_TIMEOUT = 15 * 60
+
+
+def _poll_device_code(
+    issuer: str,
+    device_auth_id: str,
+    user_code: str,
+    interval: int,
+    http_client: Optional[httpx.Client] = None,
+    request_timeout: float = 15.0,
+) -> dict:
+    url = f"{issuer.rstrip('/')}/api/accounts/deviceauth/token"
+    deadline = time.time() + _DEVICE_CODE_TIMEOUT
+    post = http_client.post if http_client is not None else httpx.post
+
+    while time.time() < deadline:
+        response = post(
+            url,
+            headers={"Content-Type": "application/json"},
+            json={"device_auth_id": device_auth_id, "user_code": user_code},
+            timeout=request_timeout,
+        )
+        if response.status_code == 200:
+            return response.json()
+        if response.status_code in (403, 404):
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(interval, remaining))
+            continue
+        response.raise_for_status()
+
+    raise TimeoutError("Device code login timed out (15 minutes).")
+
+
 @dataclass
 class OpenAIOAuthCredentials:
     access_token: str
@@ -571,9 +632,24 @@ class OpenAIOAuth(OpenAI):
     ) -> OpenAIOAuthCredentials:
         _tls_preflight(self._oauth_manager.issuer)
 
+        # Headless environments: use device code flow (no local server needed)
+        use_device_code = _is_headless_environment() or os.environ.get(
+            "DROIDRUN_OAUTH_MANUAL", ""
+        ).lower() in ("1", "true", "yes")
+        if use_device_code:
+            try:
+                return self.login_device_code()
+            except _DeviceCodeNotSupported:
+                return self.login_manual(
+                    open_browser=False,
+                    callback_port=callback_port,
+                    callback_path=callback_path,
+                    redirect_host=redirect_host,
+                    scope=scope,
+                )
+
+        # Desktop: browser callback server
         result: Dict[str, Optional[str]] = {"code": None, "state": None, "error": None}
-        manual_code: Dict[str, Optional[str]] = {"code": None}
-        manual_failed = threading.Event()
         done = threading.Event()
         code_verifier, code_challenge = _pkce_pair()
         state = _b64_no_pad(secrets.token_bytes(32))
@@ -642,72 +718,18 @@ class OpenAIOAuth(OpenAI):
             if open_browser:
                 webbrowser.open(auth_url)
 
-            # Only run the manual-paste race when we can't rely on the local
-            # browser callback: headless envs (SSH/WSL/no-display), or when the
-            # user explicitly opts in with DROIDRUN_OAUTH_MANUAL=1. On a normal
-            # desktop the server always wins anyway, and a blocked input()
-            # thread would intercept InquirerPy's terminal queries and lag the
-            # configure wizard.
-            enable_manual = _is_headless_environment() or os.environ.get(
-                "DROIDRUN_OAUTH_MANUAL", ""
-            ).lower() in ("1", "true", "yes")
-            if enable_manual:
-                def _read_manual() -> None:
-                    for attempt in range(2):
-                        if done.is_set():
-                            return
-                        try:
-                            raw = str(input("Or paste the redirect URL / authorization code: "))
-                        except Exception:
-                            return
-                        if done.is_set():
-                            return
-                        if not raw.strip():
-                            if attempt == 0:
-                                print("Invalid paste. Try again.")
-                                continue
-                            if not done.is_set():
-                                manual_failed.set()
-                                done.set()
-                            return
-                        try:
-                            code = _normalize_manual_code(raw, state)
-                        except Exception:  # noqa: BLE001
-                            if attempt == 0:
-                                print("Invalid paste. Try again.")
-                                continue
-                            print("Invalid paste.")
-                            if not done.is_set():
-                                manual_failed.set()
-                                done.set()
-                            return
-                        if code:
-                            manual_code["code"] = code
-                            done.set()
-                            return
-
-                manual_thread = threading.Thread(target=_read_manual, daemon=True)
-                manual_thread.start()
-
             if not done.wait(timeout=timeout_seconds):
                 raise TimeoutError("OAuth login timed out before callback was received.")
 
-            if manual_failed.is_set():
-                raise RuntimeError("Login failed.")
-
-            if manual_code["code"]:
-                code_to_exchange = manual_code["code"]
-            else:
-                if result["error"]:
-                    raise RuntimeError(f"OAuth callback returned error: {result['error']}")
-                if result["state"] != state:
-                    raise RuntimeError("OAuth callback state mismatch.")
-                if not result["code"]:
-                    raise RuntimeError("OAuth callback did not include an authorization code.")
-                code_to_exchange = result["code"]
+            if result["error"]:
+                raise RuntimeError(f"OAuth callback returned error: {result['error']}")
+            if result["state"] != state:
+                raise RuntimeError("OAuth callback state mismatch.")
+            if not result["code"]:
+                raise RuntimeError("OAuth callback did not include an authorization code.")
 
             creds = self._oauth_manager.exchange_authorization_code(
-                code=code_to_exchange,
+                code=result["code"],
                 redirect_uri=redirect_uri,
                 code_verifier=code_verifier,
             )
@@ -717,6 +739,58 @@ class OpenAIOAuth(OpenAI):
         finally:
             httpd.shutdown()
             httpd.server_close()
+
+    def login_device_code(self) -> OpenAIOAuthCredentials:
+        """Device Code login for headless/SSH environments.
+
+        Uses the OAuth 2.0 Device Authorization Grant (RFC 8628). The user
+        opens a URL on any browser (phone, laptop, etc.) and enters a short
+        one-time code. The CLI polls until the auth completes — no redirect
+        back to localhost needed.
+
+        Raises _DeviceCodeNotSupported if the server returns 404.
+        """
+        mgr = self._oauth_manager
+        http_client = mgr.http_client
+
+        device_resp = _request_device_code(
+            mgr.issuer, mgr.client_id,
+            http_client=http_client,
+            request_timeout=mgr.request_timeout,
+        )
+        device_auth_id = device_resp["device_auth_id"]
+        user_code = device_resp.get("user_code") or device_resp.get("usercode", "")
+        try:
+            interval = int(str(device_resp.get("interval", "5")).strip())
+        except (TypeError, ValueError):
+            interval = 5
+        verification_url = f"{mgr.issuer}/codex/device"
+
+        print(
+            f"\nSign in with your ChatGPT account:\n"
+            f"\n1. Open this link in your browser:\n   {verification_url}\n"
+            f"\n2. Enter this code (expires in 15 minutes):\n   {user_code}\n"
+            f"\nDevice codes are a common phishing target. Never share this code.\n"
+        )
+
+        token_resp = _poll_device_code(
+            mgr.issuer,
+            device_auth_id,
+            user_code,
+            interval,
+            http_client=http_client,
+            request_timeout=mgr.request_timeout,
+        )
+
+        redirect_uri = f"{mgr.issuer}/deviceauth/callback"
+        creds = self._oauth_manager.exchange_authorization_code(
+            code=token_resp["authorization_code"],
+            redirect_uri=redirect_uri,
+            code_verifier=token_resp["code_verifier"],
+        )
+        if creds.account_id:
+            object.__setattr__(self, "_oauth_account_id", creds.account_id)
+        return creds
 
     def login_manual(
         self,
@@ -728,12 +802,7 @@ class OpenAIOAuth(OpenAI):
         redirect_host: str = DEFAULT_OPENAI_OAUTH_CALLBACK_HOST,
         scope: str = DEFAULT_OPENAI_OAUTH_SCOPE,
     ) -> OpenAIOAuthCredentials:
-        """Manual OAuth flow for headless/VPS/WSL environments.
-
-        Uses the same redirect_uri as the browser flow (OpenAI requires
-        port 1455). The browser will fail to load the redirect page, but
-        the URL bar will contain the authorization code.
-        """
+        """Manual OAuth flow — last resort fallback when device code is unavailable."""
         code_verifier, code_challenge = _pkce_pair()
         state = _b64_no_pad(secrets.token_bytes(32))
         redirect_uri = f"http://{redirect_host}:{callback_port}{callback_path}"
