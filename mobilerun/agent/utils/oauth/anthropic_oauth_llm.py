@@ -411,9 +411,19 @@ class AnthropicOAuthLLM(CustomLLM):
         callback_path: str = "/callback",
         expires_in: Optional[int] = None,
     ) -> str:
+        # Headless environments: skip local server, use hosted callback page
+        use_headless = _is_headless_environment() or os.environ.get(
+            "DROIDRUN_OAUTH_MANUAL", ""
+        ).lower() in ("1", "true", "yes")
+        if use_headless:
+            return self.login_headless(
+                open_browser=open_browser,
+                timeout_seconds=timeout_seconds,
+                expires_in=expires_in,
+            )
+
+        # Desktop: browser callback server
         result: Dict[str, Optional[str]] = {"code": None, "state": None, "error": None}
-        manual_code: Dict[str, Optional[str]] = {"code": None}
-        manual_failed = threading.Event()
         done = threading.Event()
 
         code_verifier, code_challenge = _pkce_pair()
@@ -461,8 +471,10 @@ class AnthropicOAuthLLM(CustomLLM):
                 f"Could not bind callback server on {callback_host}:{callback_port} ({exc}). "
                 "Falling back to manual code entry."
             )
-            return self.login_manual(
-                open_browser=open_browser, expires_in=expires_in
+            return self.login_headless(
+                open_browser=open_browser,
+                timeout_seconds=timeout_seconds,
+                expires_in=expires_in,
             )
 
         actual_port = httpd.server_address[1]
@@ -481,72 +493,18 @@ class AnthropicOAuthLLM(CustomLLM):
             if open_browser:
                 webbrowser.open(auth_url)
 
-            # Only run the manual-paste race when we can't rely on the local
-            # browser callback: headless envs (SSH/WSL/no-display), or when the
-            # user explicitly opts in with DROIDRUN_OAUTH_MANUAL=1. On a normal
-            # desktop the server always wins anyway, and a blocked input()
-            # thread would intercept InquirerPy's terminal queries and lag the
-            # configure wizard.
-            enable_manual = _is_headless_environment() or os.environ.get(
-                "DROIDRUN_OAUTH_MANUAL", ""
-            ).lower() in ("1", "true", "yes")
-            if enable_manual:
-                def _read_manual() -> None:
-                    for attempt in range(2):
-                        if done.is_set():
-                            return
-                        try:
-                            raw = str(input("Or paste the redirect URL / authorization code: "))
-                        except Exception:
-                            return
-                        if done.is_set():
-                            return
-                        if not raw.strip():
-                            if attempt == 0:
-                                print("Invalid paste. Try again.")
-                                continue
-                            if not done.is_set():
-                                manual_failed.set()
-                                done.set()
-                            return
-                        try:
-                            code = _normalize_manual_code(raw, state)
-                        except Exception:  # noqa: BLE001
-                            if attempt == 0:
-                                print("Invalid paste. Try again.")
-                                continue
-                            print("Invalid paste.")
-                            if not done.is_set():
-                                manual_failed.set()
-                                done.set()
-                            return
-                        if code:
-                            manual_code["code"] = code
-                            done.set()
-                            return
-
-                manual_thread = threading.Thread(target=_read_manual, daemon=True)
-                manual_thread.start()
-
             if not done.wait(timeout=timeout_seconds):
                 raise TimeoutError("OAuth login timed out before callback was received.")
 
-            if manual_failed.is_set():
-                raise RuntimeError("Login failed.")
-
-            if manual_code["code"]:
-                code_to_exchange = manual_code["code"]
-            else:
-                if result["error"]:
-                    raise RuntimeError(f"OAuth callback returned error: {result['error']}")
-                if result["state"] != state:
-                    raise RuntimeError("OAuth callback state mismatch.")
-                if not result["code"]:
-                    raise RuntimeError("OAuth callback did not include an authorization code.")
-                code_to_exchange = result["code"]
+            if result["error"]:
+                raise RuntimeError(f"OAuth callback returned error: {result['error']}")
+            if result["state"] != state:
+                raise RuntimeError("OAuth callback state mismatch.")
+            if not result["code"]:
+                raise RuntimeError("OAuth callback did not include an authorization code.")
 
             return self._exchange_authorization_code(
-                code=code_to_exchange,
+                code=result["code"],
                 redirect_uri=redirect_uri,
                 code_verifier=code_verifier,
                 state=state,
@@ -557,13 +515,19 @@ class AnthropicOAuthLLM(CustomLLM):
             httpd.shutdown()
             httpd.server_close()
 
-    def login_manual(
+    def login_headless(
         self,
         *,
-        open_browser: bool = True,
+        open_browser: bool = False,
+        timeout_seconds: float = 300.0,
         input_fn: Any = input,
         expires_in: Optional[int] = None,
     ) -> str:
+        """Headless OAuth flow for SSH/WSL environments.
+
+        Redirects to Anthropic's hosted callback page which displays the
+        authorization code on screen.
+        """
         code_verifier, code_challenge = _pkce_pair()
         state = _b64_no_pad(secrets.token_bytes(32))
         redirect_uri = "https://platform.claude.com/oauth/code/callback"
@@ -579,21 +543,47 @@ class AnthropicOAuthLLM(CustomLLM):
         )
 
         try:
-            print(f"Open this URL to login:\n{auth_url}")
+            print(
+                f"\nSign in with your Anthropic account:\n"
+                f"\n1. Open this link in your browser:\n   {auth_url}\n"
+                f"\n2. Complete sign-in, then paste the authorization code shown on the page.\n"
+            )
             if open_browser:
                 webbrowser.open(auth_url)
+
+            deadline = time.time() + timeout_seconds
+
             for attempt in range(2):
-                raw = str(input_fn("Paste the redirect URL or authorization code: "))
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    raise TimeoutError("OAuth login timed out.")
+
+                read_result: Dict[str, Optional[str]] = {"value": None}
+                read_done = threading.Event()
+
+                def _reader() -> None:
+                    try:
+                        read_result["value"] = str(input_fn("Enter the authorization code: "))
+                    except (EOFError, OSError):
+                        pass
+                    read_done.set()
+
+                threading.Thread(target=_reader, daemon=True).start()
+
+                if not read_done.wait(timeout=remaining):
+                    raise TimeoutError("OAuth login timed out.")
+
+                raw = read_result["value"] or ""
                 if not raw.strip():
                     if attempt == 0:
-                        print("Invalid paste. Try again.")
+                        print("No code entered. Try again.")
                         continue
                     raise RuntimeError("Login failed.")
                 try:
                     code = _normalize_manual_code(raw, state)
                 except Exception:  # noqa: BLE001
                     if attempt == 0:
-                        print("Invalid paste. Try again.")
+                        print("Invalid code. Try again.")
                         continue
                     raise RuntimeError("Login failed.")
                 if code:
@@ -605,7 +595,7 @@ class AnthropicOAuthLLM(CustomLLM):
                         expires_in=expires_in,
                     )
                 if attempt == 0:
-                    print("Invalid paste. Try again.")
+                    print("Invalid code. Try again.")
                     continue
                 raise RuntimeError("Login failed.")
             raise RuntimeError("Login failed.")

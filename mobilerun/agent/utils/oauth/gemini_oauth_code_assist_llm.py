@@ -650,7 +650,23 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
             remaining = deadline - time.time()
             if remaining <= 0:
                 raise TimeoutError("OAuth login timed out.")
-            raw = str(input_fn("Enter the authorization code: "))
+
+            read_result: Dict[str, Optional[str]] = {"value": None}
+            read_done = threading.Event()
+
+            def _reader() -> None:
+                try:
+                    read_result["value"] = str(input_fn("Enter the authorization code: "))
+                except (EOFError, OSError):
+                    pass
+                read_done.set()
+
+            threading.Thread(target=_reader, daemon=True).start()
+
+            if not read_done.wait(timeout=remaining):
+                raise TimeoutError("OAuth login timed out.")
+
+            raw = read_result["value"] or ""
             if not raw.strip():
                 if attempt == 0:
                     print("No code entered. Try again.")
