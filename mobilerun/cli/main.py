@@ -1006,9 +1006,9 @@ def anthropic_login(credential_path: str, token: str | None):
     """Login with Anthropic OAuth and save credentials locally."""
     if token:
         save_anthropic_setup_token(credential_path, token)
+        _print_oauth_login_success("Anthropic", credential_path)
     else:
         _run_anthropic_oauth_login(credential_path=credential_path)
-    _print_oauth_login_success("Anthropic", credential_path)
 
 
 @anthropic.command("setup-token")
