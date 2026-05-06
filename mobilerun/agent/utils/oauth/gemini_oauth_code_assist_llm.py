@@ -59,6 +59,10 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
+# Keep in sync with _MAX_CODE_ATTEMPTS in anthropic_oauth_llm.py
+_MAX_CODE_ATTEMPTS = 2
+
+
 def _is_headless_environment() -> bool:
     """Detect SSH, WSL, or missing display where browser popups won't work."""
     if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
@@ -571,7 +575,7 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         except OSError as exc:
             print(
                 f"Could not bind callback server on {callback_host}:{callback_port} ({exc}). "
-                "Falling back to manual code entry."
+                "Falling back to headless code entry."
             )
             return self.login_headless(
                 open_browser=open_browser,
@@ -647,7 +651,7 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         need_more = threading.Event()
 
         def _reader() -> None:
-            for _ in range(2):
+            for _ in range(_MAX_CODE_ATTEMPTS):
                 need_more.wait()
                 need_more.clear()
                 if stop.is_set():
@@ -661,7 +665,7 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         threading.Thread(target=_reader, daemon=True).start()
 
         try:
-            for attempt in range(2):
+            for attempt in range(_MAX_CODE_ATTEMPTS):
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     raise TimeoutError("OAuth login timed out.")
@@ -671,7 +675,7 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                 try:
                     raw = input_queue.get(timeout=remaining)
                 except queue.Empty:
-                    raise TimeoutError("OAuth login timed out.")
+                    raise TimeoutError("OAuth login timed out.") from None
 
                 if raw is None:
                     raise RuntimeError("Login failed — stdin closed.")
@@ -702,8 +706,6 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
             # the daemon thread dies with the process.
             stop.set()
             need_more.set()
-
-    login_manual = login_headless
 
     def _resolve_access_token(self) -> str:
         env_access_token = os.environ.get("GEMINI_OAUTH_ACCESS_TOKEN")
