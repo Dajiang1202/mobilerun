@@ -1000,13 +1000,15 @@ def anthropic():
 @click.option(
     "--token",
     default=None,
-    help="Anthropic setup-token value. If omitted, you will be prompted.",
+    help="Anthropic setup-token value. If provided, skips the OAuth flow.",
 )
 def anthropic_login(credential_path: str, token: str | None):
-    """Save an Anthropic setup-token. This is the only supported Anthropic auth flow."""
-    token_value = _prompt_anthropic_setup_token(token)
-    save_anthropic_setup_token(credential_path, token_value)
-    _print_oauth_login_success("Anthropic setup-token", credential_path)
+    """Login with Anthropic OAuth and save credentials locally."""
+    if token:
+        save_anthropic_setup_token(credential_path, token)
+    else:
+        _run_anthropic_oauth_login(credential_path=credential_path)
+    _print_oauth_login_success("Anthropic", credential_path)
 
 
 @anthropic.command("setup-token")
