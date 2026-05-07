@@ -172,11 +172,23 @@ def _portal_apk_asset_priority(asset_name: str) -> tuple[int, str]:
     lower_name = asset_name.lower()
     if "unsigned" in lower_name:
         return (3, lower_name)
-    if "release" in lower_name or "stable" in lower_name:
-        return (0, lower_name)
     if "debug" in lower_name:
+        return (2, lower_name)
+    if "release" in lower_name or "stable" in lower_name:
         return (1, lower_name)
-    return (2, lower_name)
+    return (0, lower_name)
+
+
+def _portal_apk_fallback_name(version: str) -> str:
+    return f"{PORTAL_PACKAGE_NAME}-{version}.apk"
+
+
+def _portal_apk_fallback_url(
+    version: str, download_base: str, tag: str
+) -> tuple[str, str]:
+    asset_name = _portal_apk_fallback_name(version)
+    base = _normalize_download_base(download_base).rstrip("/")
+    return f"{base}/{tag}/{asset_name}", asset_name
 
 
 def _parse_portal_asset_version(asset_name: str) -> str | None:
@@ -284,9 +296,9 @@ def _resolve_versioned_portal_apk_asset(
         if debug:
             print(f"Failed to resolve release assets for {tag}, using fallback URL: {e}")
 
-    asset_name = f"{PORTAL_PACKAGE_NAME}-{tag.removeprefix('v')}-debug.apk"
-    base = _normalize_download_base(download_base).rstrip("/")
-    return f"{base}/{tag}/{asset_name}", tag.removeprefix("v"), asset_name
+    asset_version = tag.removeprefix("v")
+    asset_url, asset_name = _portal_apk_fallback_url(asset_version, download_base, tag)
+    return asset_url, asset_version, asset_name
 
 
 def _resolve_latest_portal_apk_asset(debug: bool = False) -> tuple[str, str, str]:

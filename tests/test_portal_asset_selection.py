@@ -102,6 +102,19 @@ class PortalAssetSelectionTest(unittest.TestCase):
         self.assertTrue(asset_url.endswith("/com.mobilerun.portal-0.7.1-debug.apk"))
         self.assertEqual(asset_version, "0.7.1")
 
+    def test_latest_release_selects_canonical_signed_asset_over_debug(self):
+        asset_url, asset_name, asset_version = _select_portal_apk_asset(
+            [
+                _github_asset("com.mobilerun.portal-0.7.1-release-unsigned.apk"),
+                _github_asset("com.mobilerun.portal-0.7.1-debug.apk"),
+                _github_asset("com.mobilerun.portal-0.7.1.apk"),
+            ]
+        )
+
+        self.assertEqual(asset_name, "com.mobilerun.portal-0.7.1.apk")
+        self.assertTrue(asset_url.endswith("/com.mobilerun.portal-0.7.1.apk"))
+        self.assertEqual(asset_version, "0.7.1")
+
     def test_mobilerun_portal_named_asset_matches(self):
         asset_url, asset_name, asset_version = _select_portal_apk_asset(
             [_github_asset("mobilerun-portal-v0.7.1-release.apk")]
@@ -231,6 +244,7 @@ class PortalAssetSelectionTest(unittest.TestCase):
             return [
                 _github_asset("com.mobilerun.portal-0.7.1-release-unsigned.apk"),
                 _github_asset("com.mobilerun.portal-0.7.1-debug.apk"),
+                _github_asset("com.mobilerun.portal-0.7.1.apk"),
             ]
 
         portal._get_release_assets_by_tag = release_assets
@@ -243,8 +257,8 @@ class PortalAssetSelectionTest(unittest.TestCase):
         finally:
             portal._get_release_assets_by_tag = original
 
-        self.assertEqual(asset_name, "com.mobilerun.portal-0.7.1-debug.apk")
-        self.assertTrue(asset_url.endswith("/com.mobilerun.portal-0.7.1-debug.apk"))
+        self.assertEqual(asset_name, "com.mobilerun.portal-0.7.1.apk")
+        self.assertTrue(asset_url.endswith("/com.mobilerun.portal-0.7.1.apk"))
         self.assertEqual(asset_version, "0.7.1")
 
     def test_versioned_resolution_normalizes_stale_download_base_fallback(self):
@@ -263,11 +277,11 @@ class PortalAssetSelectionTest(unittest.TestCase):
         finally:
             portal._get_release_assets_by_tag = original
 
-        self.assertEqual(asset_name, "com.mobilerun.portal-0.7.1-debug.apk")
+        self.assertEqual(asset_name, "com.mobilerun.portal-0.7.1.apk")
         self.assertEqual(
             asset_url,
             "https://github.com/droidrun/mobilerun-portal/releases/download/"
-            "v0.7.1/com.mobilerun.portal-0.7.1-debug.apk",
+            "v0.7.1/com.mobilerun.portal-0.7.1.apk",
         )
         self.assertEqual(asset_version, "0.7.1")
         self.assertEqual(
@@ -278,6 +292,10 @@ class PortalAssetSelectionTest(unittest.TestCase):
         )
 
     def test_asset_version_parsing_ignores_build_suffixes(self):
+        self.assertEqual(
+            _parse_portal_asset_version("com.mobilerun.portal-0.7.1.apk"),
+            "0.7.1",
+        )
         self.assertEqual(
             _parse_portal_asset_version("com.mobilerun.portal-0.7.1-debug.apk"),
             "0.7.1",
