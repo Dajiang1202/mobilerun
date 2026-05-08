@@ -169,7 +169,11 @@ class AndroidStateProvider(StateProvider):
         if device is None:
             return
 
-        from mobilerun.portal import PORTAL_PACKAGE_NAME, portal_a11y_service, portal_content_uri
+        from mobilerun.portal import (
+            PORTAL_PACKAGE_NAME,
+            portal_a11y_service,
+            portal_content_uri,
+        )
 
         a11y = portal_a11y_service(PORTAL_PACKAGE_NAME)
 
@@ -177,9 +181,7 @@ class AndroidStateProvider(StateProvider):
         logger.debug("Restarting Portal accessibility service...")
         await device.shell("settings put secure accessibility_enabled 0")
         await asyncio.sleep(0.5)
-        await device.shell(
-            f"settings put secure enabled_accessibility_services {a11y}"
-        )
+        await device.shell(f"settings put secure enabled_accessibility_services {a11y}")
         await device.shell("settings put secure accessibility_enabled 1")
 
         # 2. Restart TCP socket server if it was in use

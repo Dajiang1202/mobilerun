@@ -146,7 +146,9 @@ class VisualRemoteDriver(DeviceDriver):
 
     async def start_app(self, package: str, activity: Optional[str] = None) -> str:
         if "start_app" not in self.supported:
-            return "Failed to launch app: visual remote server does not support app launch"
+            return (
+                "Failed to launch app: visual remote server does not support app launch"
+            )
 
         payload: dict[str, Any] = {"action": "open_app", "package": package}
         if activity:
@@ -184,7 +186,9 @@ class VisualRemoteDriver(DeviceDriver):
             return body
         if isinstance(body, dict) and isinstance(body.get("devices"), list):
             return body["devices"]
-        raise ValueError("visual-remote /devices must return a list or {devices: [...]}")
+        raise ValueError(
+            "visual-remote /devices must return a list or {devices: [...]}"
+        )
 
     def _select_device(self, devices: list[dict[str, Any]]) -> dict[str, Any]:
         if not devices:

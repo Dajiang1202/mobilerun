@@ -141,7 +141,9 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
     timeout: float = Field(default=30.0, gt=0)
 
     access_token: Optional[str] = Field(default=None, description="OAuth access token.")
-    refresh_token: Optional[str] = Field(default=None, description="OAuth refresh token.")
+    refresh_token: Optional[str] = Field(
+        default=None, description="OAuth refresh token."
+    )
     client_id: str = Field(default=DEFAULT_CLIENT_ID)
     client_secret: str = Field(default=DEFAULT_CLIENT_SECRET)
     authorize_url: str = Field(default=DEFAULT_AUTHORIZE_URL)
@@ -295,9 +297,11 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
             "access_token": self._cached_access_token,
             "refresh_token": self._cached_refresh_token,
             "token_type": "Bearer",
-            "expiry_date": int(self._access_token_expiry * 1000)
-            if self._access_token_expiry
-            else None,
+            "expiry_date": (
+                int(self._access_token_expiry * 1000)
+                if self._access_token_expiry
+                else None
+            ),
             "project_id": self.project_id,
         }
 
@@ -324,8 +328,10 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
     def _default_tier_id(allowed_tiers: Any) -> str:
         if isinstance(allowed_tiers, list):
             for tier in allowed_tiers:
-                if isinstance(tier, dict) and tier.get("isDefault") and isinstance(
-                    tier.get("id"), str
+                if (
+                    isinstance(tier, dict)
+                    and tier.get("isDefault")
+                    and isinstance(tier.get("id"), str)
                 ):
                     return tier["id"]
             for tier in allowed_tiers:
@@ -389,7 +395,9 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         onboard_response.raise_for_status()
         onboard_data = onboard_response.json()
 
-        project_id = self._extract_project_id(onboard_data.get("response") or onboard_data)
+        project_id = self._extract_project_id(
+            onboard_data.get("response") or onboard_data
+        )
         if project_id:
             object.__setattr__(self, "project_id", project_id)
             self._persist_credentials()
@@ -424,7 +432,9 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
 
         access_token = data.get("access_token")
         if not isinstance(access_token, str) or not access_token:
-            raise RuntimeError(f"Token refresh succeeded but no access_token returned: {data}")
+            raise RuntimeError(
+                f"Token refresh succeeded but no access_token returned: {data}"
+            )
 
         expires_in = data.get("expires_in", 3600)
         try:
@@ -601,14 +611,18 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                 webbrowser.open(auth_url)
 
             if not done.wait(timeout=timeout_seconds):
-                raise TimeoutError("OAuth login timed out before callback was received.")
+                raise TimeoutError(
+                    "OAuth login timed out before callback was received."
+                )
 
             if result["error"]:
                 raise RuntimeError(f"OAuth callback returned error: {result['error']}")
             if result["state"] != expected_state:
                 raise RuntimeError("OAuth callback state mismatch.")
             if not result["code"]:
-                raise RuntimeError("OAuth callback did not include an authorization code.")
+                raise RuntimeError(
+                    "OAuth callback did not include an authorization code."
+                )
 
             return self._exchange_authorization_code(
                 result["code"], redirect_uri, code_verifier=code_verifier
@@ -906,7 +920,9 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         )
 
     @llm_chat_callback()
-    def stream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseGen:
+    def stream_chat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> ChatResponseGen:
         token = self._resolve_access_token()
         self._ensure_project_id(token)
         payload = self._to_code_assist_request(messages, **kwargs)
@@ -953,13 +969,17 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
 
                 accumulated += delta
                 yield ChatResponse(
-                    message=ChatMessage(role=MessageRole.ASSISTANT, content=accumulated),
+                    message=ChatMessage(
+                        role=MessageRole.ASSISTANT, content=accumulated
+                    ),
                     delta=delta,
                     raw=raw_chunk,
                     additional_kwargs={
                         "trace_id": raw_chunk.get("traceId"),
                         "usage": (raw_chunk.get("response") or {}).get("usageMetadata"),
-                        "model_version": (raw_chunk.get("response") or {}).get("modelVersion"),
+                        "model_version": (raw_chunk.get("response") or {}).get(
+                            "modelVersion"
+                        ),
                     },
                 )
 

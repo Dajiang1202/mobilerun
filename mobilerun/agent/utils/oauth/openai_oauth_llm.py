@@ -30,7 +30,12 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import webbrowser
 
 import httpx
-from llama_index.core.base.llms.types import ChatMessage, ChatResponse, LLMMetadata, MessageRole
+from llama_index.core.base.llms.types import (
+    ChatMessage,
+    ChatResponse,
+    LLMMetadata,
+    MessageRole,
+)
 from llama_index.llms.openai import OpenAI
 from llama_index.llms.openai.base import llm_retry_decorator
 from llama_index.llms.openai.utils import to_openai_message_dicts
@@ -426,7 +431,11 @@ class OpenAIOAuthSessionManager:
             new_refresh = refresh_token
 
         expires_at_ms = self._compute_expiry_ms(access, payload.get("expires_in"))
-        id_or_access = payload.get("id_token") if isinstance(payload.get("id_token"), str) else access
+        id_or_access = (
+            payload.get("id_token")
+            if isinstance(payload.get("id_token"), str)
+            else access
+        )
         account_id = self._extract_account_id(id_or_access)
 
         return OpenAIOAuthCredentials(
@@ -487,7 +496,9 @@ class OpenAIOAuthSessionManager:
 
         access = payload.get("access_token")
         if not isinstance(access, str) or not access:
-            raise RuntimeError("OpenAI OAuth code exchange response missing access_token.")
+            raise RuntimeError(
+                "OpenAI OAuth code exchange response missing access_token."
+            )
 
         refresh = payload.get("refresh_token")
         credentials = OpenAIOAuthCredentials(
@@ -593,9 +604,13 @@ class OpenAIOAuth(OpenAI):
         kwargs.setdefault("api_base", DEFAULT_OPENAI_API_BASE)
         super().__init__(model=resolved_model, api_key=seed_api_key, **kwargs)
         object.__setattr__(
-            self, "_oauth_refresh_skew_ms", max(0, int(oauth_refresh_skew_seconds)) * 1000
+            self,
+            "_oauth_refresh_skew_ms",
+            max(0, int(oauth_refresh_skew_seconds)) * 1000,
         )
-        object.__setattr__(self, "_use_chatgpt_account_header", use_chatgpt_account_header)
+        object.__setattr__(
+            self, "_use_chatgpt_account_header", use_chatgpt_account_header
+        )
         object.__setattr__(self, "_oauth_account_id", oauth_account_id)
         object.__setattr__(self, "_active_access_token", None)
         object.__setattr__(self, "_responses_api_base", DEFAULT_CODEX_API_BASE)
@@ -706,14 +721,18 @@ class OpenAIOAuth(OpenAI):
                 webbrowser.open(auth_url)
 
             if not done.wait(timeout=timeout_seconds):
-                raise TimeoutError("OAuth login timed out before callback was received.")
+                raise TimeoutError(
+                    "OAuth login timed out before callback was received."
+                )
 
             if result["error"]:
                 raise RuntimeError(f"OAuth callback returned error: {result['error']}")
             if result["state"] != state:
                 raise RuntimeError("OAuth callback state mismatch.")
             if not result["code"]:
-                raise RuntimeError("OAuth callback did not include an authorization code.")
+                raise RuntimeError(
+                    "OAuth callback did not include an authorization code."
+                )
 
             creds = self._oauth_manager.exchange_authorization_code(
                 code=result["code"],
@@ -740,7 +759,8 @@ class OpenAIOAuth(OpenAI):
         http_client = mgr.http_client
 
         device_resp = _request_device_code(
-            mgr.issuer, mgr.client_id,
+            mgr.issuer,
+            mgr.client_id,
             http_client=http_client,
             request_timeout=mgr.request_timeout,
         )
@@ -808,7 +828,9 @@ class OpenAIOAuth(OpenAI):
         return creds
 
     def _ensure_access_token(self) -> OpenAIOAuthCredentials:
-        creds = self._oauth_manager.get_valid_credentials(skew_ms=self._oauth_refresh_skew_ms)
+        creds = self._oauth_manager.get_valid_credentials(
+            skew_ms=self._oauth_refresh_skew_ms
+        )
 
         if self._active_access_token != creds.access_token:
             self._active_access_token = creds.access_token
@@ -849,7 +871,6 @@ class OpenAIOAuth(OpenAI):
 
         return kwargs
 
-
     def _resolve_codex_instructions(self, messages: list[ChatMessage]) -> str:
         system_parts: list[str] = []
         for msg in messages:
@@ -858,9 +879,15 @@ class OpenAIOAuth(OpenAI):
             content = msg.content
             if isinstance(content, str) and content.strip():
                 system_parts.append(content.strip())
-        return "\n\n".join(system_parts) if system_parts else "You are a helpful coding assistant."
+        return (
+            "\n\n".join(system_parts)
+            if system_parts
+            else "You are a helpful coding assistant."
+        )
 
-    def _build_responses_payload(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    def _build_responses_payload(
+        self, messages: list[ChatMessage]
+    ) -> list[dict[str, Any]]:
         non_system_messages = [m for m in messages if m.role != MessageRole.SYSTEM]
         try:
             payload_raw = to_openai_message_dicts(
@@ -888,7 +915,9 @@ class OpenAIOAuth(OpenAI):
 
             if isinstance(content, str):
                 text_type = "input_text" if role == "user" else "output_text"
-                normalized.append({**item, "content": [{"type": text_type, "text": content}]})
+                normalized.append(
+                    {**item, "content": [{"type": text_type, "text": content}]}
+                )
                 continue
 
             if isinstance(content, list):
@@ -998,7 +1027,10 @@ class OpenAIOAuth(OpenAI):
             events = client.responses.create(input=payload, **request_kwargs)
             text, response = self._collect_stream_text_sync(events)
         except Exception as exc:
-            if self._responses_api_base == DEFAULT_CODEX_API_BASE and self._is_not_found_error(exc):
+            if (
+                self._responses_api_base == DEFAULT_CODEX_API_BASE
+                and self._is_not_found_error(exc)
+            ):
                 self._responses_api_base = DEFAULT_BACKEND_API_BASE
                 self.api_base = self._responses_api_base
                 self._client = None
@@ -1037,7 +1069,10 @@ class OpenAIOAuth(OpenAI):
             events = await aclient.responses.create(input=payload, **request_kwargs)
             text, response = await self._collect_stream_text_async(events)
         except Exception as exc:
-            if self._responses_api_base == DEFAULT_CODEX_API_BASE and self._is_not_found_error(exc):
+            if (
+                self._responses_api_base == DEFAULT_CODEX_API_BASE
+                and self._is_not_found_error(exc)
+            ):
                 self._responses_api_base = DEFAULT_BACKEND_API_BASE
                 self.api_base = self._responses_api_base
                 self._client = None

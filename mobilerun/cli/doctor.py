@@ -420,9 +420,7 @@ async def check_tcp(device: AdbDevice, debug: bool) -> CheckResult:
     # Step 1: Enable socket server via content provider
     try:
         toggle_uri = portal_content_uri(PORTAL_PACKAGE_NAME, "toggle_socket_server")
-        await device.shell(
-            f"content insert --uri {toggle_uri} --bind enabled:b:true"
-        )
+        await device.shell(f"content insert --uri {toggle_uri} --bind enabled:b:true")
         steps.append("server enabled")
     except Exception as e:
         return CheckResult(

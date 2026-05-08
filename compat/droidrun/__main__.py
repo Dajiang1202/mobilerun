@@ -1,4 +1,5 @@
 """Preserve 'python -m droidrun' entrypoint."""
+
 import warnings
 
 warnings.warn(

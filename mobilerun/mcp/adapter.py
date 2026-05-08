@@ -35,7 +35,9 @@ def schema_to_parameters(input_schema: dict) -> dict[str, dict[str, Any]]:
     return parameters
 
 
-def mcp_to_mobilerun_tools(mcp_manager: "MCPClientManager") -> dict[str, dict[str, Any]]:
+def mcp_to_mobilerun_tools(
+    mcp_manager: "MCPClientManager",
+) -> dict[str, dict[str, Any]]:
     """Convert discovered MCP tools to Mobilerun custom tool format."""
     custom_tools: dict[str, dict[str, Any]] = {}
 

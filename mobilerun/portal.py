@@ -111,7 +111,9 @@ def get_compatible_portal_version(
         return (None, "", False)
 
     mappings = mapping.get("mappings", {})
-    download_base = _normalize_download_base(mapping.get("download_base", DOWNLOAD_BASE))
+    download_base = _normalize_download_base(
+        mapping.get("download_base", DOWNLOAD_BASE)
+    )
 
     # Try exact match first
     if mobilerun_version in mappings:
@@ -128,7 +130,9 @@ def get_compatible_portal_version(
 def _normalize_download_base(download_base: str | None) -> str:
     if not download_base:
         return DOWNLOAD_BASE
-    return download_base.replace("droidrun/droidrun-portal", "droidrun/mobilerun-portal")
+    return download_base.replace(
+        "droidrun/droidrun-portal", "droidrun/mobilerun-portal"
+    )
 
 
 def _normalize_portal_release_tag(version: str) -> str:
@@ -294,7 +298,9 @@ def _resolve_versioned_portal_apk_asset(
         return asset_url, asset_version or tag.removeprefix("v"), asset_name
     except Exception as e:
         if debug:
-            print(f"Failed to resolve release assets for {tag}, using fallback URL: {e}")
+            print(
+                f"Failed to resolve release assets for {tag}, using fallback URL: {e}"
+            )
 
     asset_version = tag.removeprefix("v")
     asset_url, asset_name = _portal_apk_fallback_url(asset_version, download_base, tag)
@@ -476,9 +482,7 @@ async def ping_portal_content(device: AdbDevice, debug: bool = False):
     """
     try:
         uri = portal_content_uri(PORTAL_PACKAGE_NAME, "state")
-        state = await device.shell(
-            f"content query --uri {uri}"
-        )
+        state = await device.shell(f"content query --uri {uri}")
         if "Row: 0 result=" not in state:
             raise Exception("Failed to get state from Mobilerun Portal")
     except Exception as e:
@@ -662,9 +666,7 @@ async def _wait_for_portal_service(
     while asyncio.get_event_loop().time() < deadline:
         try:
             uri = portal_content_uri(PORTAL_PACKAGE_NAME, "state")
-            state = await device.shell(
-                f"content query --uri {uri}"
-            )
+            state = await device.shell(f"content query --uri {uri}")
             if '"status":"success"' in state:
                 return
         except Exception:

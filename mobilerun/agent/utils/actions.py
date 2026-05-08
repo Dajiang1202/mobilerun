@@ -58,12 +58,7 @@ def _validate_screenshot_only_point(
         raise ValueError(_screenshot_only_coordinate_error(ctx)) from exc
 
     out_of_range = (
-        width <= 0
-        or height <= 0
-        or px < 0
-        or px >= width
-        or py < 0
-        or py >= height
+        width <= 0 or height <= 0 or px < 0 or px >= width or py < 0 or py >= height
     )
     if out_of_range:
         raise ValueError(_screenshot_only_coordinate_error(ctx))

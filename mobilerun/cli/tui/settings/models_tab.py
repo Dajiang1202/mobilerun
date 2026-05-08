@@ -139,7 +139,9 @@ class _ProfileCard(Section):
             source_cls = (
                 "field-row" if pf.get("api_source") else "field-row hidden-field"
             )
-            with HorizontalGroup(classes=source_cls, id=f"row-apikey-source-{self._role}"):
+            with HorizontalGroup(
+                classes=source_cls, id=f"row-apikey-source-{self._role}"
+            ):
                 yield Label("Key Source", classes="field-label")
                 yield Select(
                     API_KEY_SOURCE_OPTIONS,
@@ -201,7 +203,8 @@ class _ProfileCard(Section):
         model = self.query_one(f"#model-{self._role}", Input).value.strip()
         api_key = self.query_one(f"#apikey-{self._role}", Input).value.strip()
         api_key_source = str(
-            self.query_one(f"#apikey-source-{self._role}", Select).value)
+            self.query_one(f"#apikey-source-{self._role}", Select).value
+        )
         base_url = self.query_one(f"#baseurl-{self._role}", Input).value.strip()
         temp_str = self.query_one(f"#temp-{self._role}", Input).value.strip()
         try:

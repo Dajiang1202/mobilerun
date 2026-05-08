@@ -43,9 +43,7 @@ DEFAULT_MODERN_LOGIN_SCOPE = (
     "user:sessions:claude_code user:mcp_servers user:file_upload"
 )
 DEFAULT_SETUP_TOKEN_SCOPE = "user:inference"
-DEFAULT_REFRESH_SCOPE = (
-    "user:inference user:profile user:file_upload user:mcp_servers user:sessions:claude_code"
-)
+DEFAULT_REFRESH_SCOPE = "user:inference user:profile user:file_upload user:mcp_servers user:sessions:claude_code"
 DEFAULT_OAUTH_BETA = "oauth-2025-04-20"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_CC_VERSION = "2.1.85.000"
@@ -120,7 +118,9 @@ class AnthropicOAuthLLM(CustomLLM):
     timeout: float = Field(default=30.0, gt=0)
 
     access_token: Optional[str] = Field(default=None, description="OAuth access token.")
-    refresh_token: Optional[str] = Field(default=None, description="OAuth refresh token.")
+    refresh_token: Optional[str] = Field(
+        default=None, description="OAuth refresh token."
+    )
     client_id: str = Field(default=DEFAULT_CLIENT_ID)
     authorize_url: str = Field(default=DEFAULT_AUTHORIZE_URL)
     token_url: str = Field(default=DEFAULT_TOKEN_URL)
@@ -270,9 +270,11 @@ class AnthropicOAuthLLM(CustomLLM):
         existing["claudeAiOauth"] = {
             "accessToken": self._cached_access_token,
             "refreshToken": self._cached_refresh_token,
-            "expiresAt": int(self._access_token_expiry * 1000)
-            if self._access_token_expiry
-            else None,
+            "expiresAt": (
+                int(self._access_token_expiry * 1000)
+                if self._access_token_expiry
+                else None
+            ),
             "scopes": self.refresh_scope.split(),
         }
 
@@ -322,7 +324,9 @@ class AnthropicOAuthLLM(CustomLLM):
 
         access_token = data.get("access_token")
         if not isinstance(access_token, str) or not access_token:
-            raise RuntimeError(f"Token refresh succeeded but no access_token returned: {data}")
+            raise RuntimeError(
+                f"Token refresh succeeded but no access_token returned: {data}"
+            )
 
         expires_in = data.get("expires_in", 28_800)
         try:
@@ -499,14 +503,18 @@ class AnthropicOAuthLLM(CustomLLM):
                 webbrowser.open(auth_url)
 
             if not done.wait(timeout=timeout_seconds):
-                raise TimeoutError("OAuth login timed out before callback was received.")
+                raise TimeoutError(
+                    "OAuth login timed out before callback was received."
+                )
 
             if result["error"]:
                 raise RuntimeError(f"OAuth callback returned error: {result['error']}")
             if result["state"] != state:
                 raise RuntimeError("OAuth callback state mismatch.")
             if not result["code"]:
-                raise RuntimeError("OAuth callback did not include an authorization code.")
+                raise RuntimeError(
+                    "OAuth callback did not include an authorization code."
+                )
 
             return self._exchange_authorization_code(
                 code=result["code"],
@@ -646,7 +654,11 @@ class AnthropicOAuthLLM(CustomLLM):
             return ""
         texts: list[str] = []
         for block in blocks:
-            if isinstance(block, dict) and block.get("type") == "text" and block.get("text"):
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "text"
+                and block.get("text")
+            ):
                 texts.append(str(block["text"]))
         return "\n".join(texts)
 
@@ -686,7 +698,9 @@ class AnthropicOAuthLLM(CustomLLM):
             return False
         return not model_id.startswith("claude-haiku")
 
-    def _system_blocks(self, user_system_lines: Sequence[str], model_id: str) -> list[dict[str, str]]:
+    def _system_blocks(
+        self, user_system_lines: Sequence[str], model_id: str
+    ) -> list[dict[str, str]]:
         blocks: list[dict[str, str]] = []
         if self._use_billing_header(model_id):
             blocks.append({"type": "text", "text": self._billing_header_text()})
@@ -776,9 +790,15 @@ class AnthropicOAuthLLM(CustomLLM):
         )
 
     @llm_chat_callback()
-    def stream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseGen:
-        raise NotImplementedError("Streaming is not implemented for AnthropicOAuthLLM yet.")
+    def stream_chat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> ChatResponseGen:
+        raise NotImplementedError(
+            "Streaming is not implemented for AnthropicOAuthLLM yet."
+        )
 
     @llm_completion_callback()
     def stream_complete(self, prompt: str, **kwargs: Any) -> CompletionResponseGen:
-        raise NotImplementedError("Streaming is not implemented for AnthropicOAuthLLM yet.")
+        raise NotImplementedError(
+            "Streaming is not implemented for AnthropicOAuthLLM yet."
+        )
