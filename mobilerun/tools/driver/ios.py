@@ -289,7 +289,9 @@ class IOSDriver(DeviceDriver):
                 self._input_coordinate_sizes[key] = (width, height)
                 return width, height
         except Exception as exc:
-            logger.debug("Could not read iOS input coordinate size from /state: %s", exc)
+            logger.debug(
+                "Could not read iOS input coordinate size from /state: %s", exc
+            )
 
         width, height = _infer_ios_point_size(screenshot_width, screenshot_height)
         self._input_coordinate_sizes[key] = (width, height)

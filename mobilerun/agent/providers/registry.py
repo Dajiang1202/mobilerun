@@ -193,9 +193,7 @@ PROVIDER_FAMILIES: tuple[ProviderFamilySpec, ...] = (
                 runtime_transport_provider_name="OpenAILike",
                 auth_mode="coding_api",
                 default_model="glm-4.7",
-                models=(
-                    "glm-4.7",
-                ),
+                models=("glm-4.7",),
                 requires_api_key=True,
                 requires_base_url=True,
                 base_url="https://api.z.ai/api/coding/paas/v4",
@@ -264,7 +262,7 @@ def normalize_model_id_for_variant(
 
     for prefix in alias_prefixes:
         if model_id.startswith(prefix):
-            normalized = model_id[len(prefix):]
+            normalized = model_id[len(prefix) :]
             if normalized in allowed_model_ids:
                 return normalized
 

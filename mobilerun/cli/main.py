@@ -96,8 +96,6 @@ def coro(f):
     return wrapper
 
 
-
-
 async def run_command(
     command: str,
     config_path: str | None = None,
@@ -203,7 +201,9 @@ async def run_command(
         if device_id is not None:
             config.device.device_id = device_id
 
-        if (config.device.control_backend or "").strip().lower() == VISUAL_REMOTE_CONNECTION:
+        if (
+            config.device.control_backend or ""
+        ).strip().lower() == VISUAL_REMOTE_CONNECTION:
             _force_screenshot_only_vision(config)
             logger.debug("Control backend visual-remote forces screenshot-only vision")
 
@@ -220,7 +220,9 @@ async def run_command(
         # Platform overrides
         if ios:
             config.device.platform = "ios"
-            if (config.device.control_backend or "").lower() == VISUAL_REMOTE_CONNECTION:
+            if (
+                config.device.control_backend or ""
+            ).lower() == VISUAL_REMOTE_CONNECTION:
                 pass
             elif config.device.serial:
                 config.device.serial = validate_ios_portal_url(config.device.serial)
@@ -389,7 +391,9 @@ def cli():
 
 def _print_oauth_login_success(provider_label: str, credential_path: str) -> None:
     console.print(f"[green]{provider_label} login succeeded.[/]")
-    console.print(f"[blue]Credentials saved to:[/] {Path(credential_path).expanduser()}")
+    console.print(
+        f"[blue]Credentials saved to:[/] {Path(credential_path).expanduser()}"
+    )
 
 
 def _run_openai_oauth_login(credential_path: str, model: str | None, **kwargs) -> None:
@@ -874,7 +878,9 @@ def setup_token(
         open_browser=open_browser,
     )
     console.print("\n[green]Setup token created.[/]")
-    console.print("Paste this token into `mobilerun configure` or `mobilerun anthropic login`.")
+    console.print(
+        "Paste this token into `mobilerun configure` or `mobilerun anthropic login`."
+    )
     click.echo(token)
 
 
@@ -892,8 +898,15 @@ def setup_token(
     help="Auth mode for the selected provider family.",
 )
 @click.option("--model", type=str, default=None, help="Model to configure.")
-@click.option("--api-key", type=str, default=None, help="API key for API-key providers.")
-@click.option("--base-url", type=str, default=None, help="Base URL override for compatible providers.")
+@click.option(
+    "--api-key", type=str, default=None, help="API key for API-key providers."
+)
+@click.option(
+    "--base-url",
+    type=str,
+    default=None,
+    help="Base URL override for compatible providers.",
+)
 def configure(
     provider: str | None,
     auth_mode: str | None,
@@ -930,7 +943,9 @@ def openai():
     show_default=True,
     help="Where to store OpenAI OAuth credentials.",
 )
-@click.option("--model", default=None, help="Optional model override for later API calls.")
+@click.option(
+    "--model", default=None, help="Optional model override for later API calls."
+)
 @click.option(
     "--timeout",
     type=float,
@@ -1042,7 +1057,9 @@ def gemini_group():
     show_default=True,
     help="Where to store Gemini OAuth credentials.",
 )
-@click.option("--model", default=None, help="Optional model override for later API calls.")
+@click.option(
+    "--model", default=None, help="Optional model override for later API calls."
+)
 @click.option(
     "--timeout",
     type=float,

@@ -55,9 +55,7 @@ class _DroidrunAliasLoader(importlib.abc.Loader):
     def exec_module(self, module):
         # The real module is already fully initialized; don't re-execute.
         # But re-assert the alias in case another finder overwrote it.
-        sys.modules[module.__name__] = sys.modules.get(
-            module.__name__, module
-        )
+        sys.modules[module.__name__] = sys.modules.get(module.__name__, module)
 
 
 class _DroidrunAliasFinder(importlib.abc.MetaPathFinder):
@@ -86,7 +84,7 @@ class _DroidrunAliasFinder(importlib.abc.MetaPathFinder):
             return None
 
         # Map to mobilerun.* and verify it exists.
-        new_name = "mobilerun" + fullname[len("droidrun"):]
+        new_name = "mobilerun" + fullname[len("droidrun") :]
         self._active = True
         try:
             real_spec = importlib.util.find_spec(new_name)

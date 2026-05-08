@@ -71,5 +71,7 @@ def text_prompt(
     normalized_default = default if default is not None else ""
     if inquirer is not None:
         prompt = inquirer.secret if secret else inquirer.text
-        return str(prompt(message=message, default=normalized_default).execute()).strip()
+        return str(
+            prompt(message=message, default=normalized_default).execute()
+        ).strip()
     return click.prompt(message, default=normalized_default, hide_input=secret).strip()

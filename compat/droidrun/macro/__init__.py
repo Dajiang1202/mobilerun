@@ -4,6 +4,7 @@ NOT empty — must re-export the real module's API so `from droidrun.macro
 import MacroPlayer` works. The lazy importer in __init__.py won't handle
 this because this file takes precedence as a physical package.
 """
+
 import sys
 
 import mobilerun.macro as _real

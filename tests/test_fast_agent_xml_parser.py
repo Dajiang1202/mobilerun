@@ -65,7 +65,9 @@ I will press back twice.
         _, calls = parse_tool_calls(text)
 
         self.assertEqual(len(calls), 2)
-        self.assertEqual([call.name for call in calls], ["system_button", "system_button"])
+        self.assertEqual(
+            [call.name for call in calls], ["system_button", "system_button"]
+        )
         self.assertEqual(calls[0].parameters, {"button": "back"})
         self.assertEqual(calls[1].parameters, {"button": "back"})
 

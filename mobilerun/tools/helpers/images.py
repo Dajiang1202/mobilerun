@@ -94,9 +94,7 @@ def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
         x = round(index * (width - 1) / divisions)
         y = round(index * (height - 1) / divisions)
         color = (
-            major_line_color
-            if index in {0, divisions // 2, divisions}
-            else line_color
+            major_line_color if index in {0, divisions // 2, divisions} else line_color
         )
         draw.line([(x, 0), (x, height - 1)], fill=color, width=1)
         draw.line([(0, y), (width - 1, y)], fill=color, width=1)

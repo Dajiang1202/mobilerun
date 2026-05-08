@@ -13,7 +13,10 @@ from mobilerun.cli.configure_prompts import (
     select_prompt,
     text_prompt,
 )
-from mobilerun.agent.providers.registry import VARIANT_ENV_KEY_SLOT, resolve_provider_variant
+from mobilerun.agent.providers.registry import (
+    VARIANT_ENV_KEY_SLOT,
+    resolve_provider_variant,
+)
 from mobilerun.config_manager.env_keys import load_env_key_sources, resolve_env_key
 from mobilerun.config_manager import ConfigLoader
 from mobilerun.agent.providers.setup_service import (
@@ -26,7 +29,13 @@ from mobilerun.agent.providers.setup_service import (
 
 _BACK = "__back__"
 
-_ALL_CONFIG_ROLES = ("manager", "executor", "fast_agent", "app_opener", "structured_output")
+_ALL_CONFIG_ROLES = (
+    "manager",
+    "executor",
+    "fast_agent",
+    "app_opener",
+    "structured_output",
+)
 
 
 @dataclass
@@ -562,7 +571,12 @@ def run_configure_wizard(
     provider_configured = False
     if provider_is_fixed and model_is_fixed:
         provider_configured = _configure_provider_model(
-            console, config, callbacks, state, families, family_labels,
+            console,
+            config,
+            callbacks,
+            state,
+            families,
+            family_labels,
             provider_is_fixed=provider_is_fixed,
             auth_mode_is_fixed=auth_mode_is_fixed,
             model_is_fixed=model_is_fixed,
@@ -604,7 +618,12 @@ def run_configure_wizard(
             state.prepared_auth_variant_id = None
 
             completed = _configure_provider_model(
-                console, config, callbacks, state, families, family_labels,
+                console,
+                config,
+                callbacks,
+                state,
+                families,
+                family_labels,
                 provider_is_fixed=False,
                 auth_mode_is_fixed=False,
                 model_is_fixed=False,

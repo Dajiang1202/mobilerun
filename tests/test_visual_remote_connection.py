@@ -188,7 +188,9 @@ class VisualRemoteDriverTest(unittest.TestCase):
         result = asyncio.run(driver.start_app("com.example.app"))
 
         self.assertIn("does not support app launch", result)
-        self.assertFalse([request for request in client.requests if request[0] == "POST"])
+        self.assertFalse(
+            [request for request in client.requests if request[0] == "POST"]
+        )
 
     def test_open_app_supported_posts_exact_identifier(self):
         driver, client = self._connect(
@@ -396,7 +398,9 @@ class ScreenshotOnlyStateProviderTest(unittest.TestCase):
         self.assertNotIn("click", registry.tools)
         self.assertNotIn("type", registry.tools)
 
-    def test_screenshot_only_coordinate_tools_describe_model_screenshot_coordinates(self):
+    def test_screenshot_only_coordinate_tools_describe_model_screenshot_coordinates(
+        self,
+    ):
         async def run():
             registry, _ = await build_tool_registry(
                 supported_buttons={"enter"},
@@ -411,8 +415,12 @@ class ScreenshotOnlyStateProviderTest(unittest.TestCase):
             "screenshot pixel coordinates",
             registry.tools["click_at"].description,
         )
-        self.assertIn("grid is only a reference", registry.tools["click_at"].description)
-        self.assertIn("do not use grid-cell numbers", registry.tools["click_at"].description)
+        self.assertIn(
+            "grid is only a reference", registry.tools["click_at"].description
+        )
+        self.assertIn(
+            "do not use grid-cell numbers", registry.tools["click_at"].description
+        )
         self.assertIn("Prefer click_at", registry.tools["click_at"].description)
         self.assertIn("coordinate grid", registry.tools["click_at"].description)
         self.assertIn(
@@ -455,7 +463,9 @@ class ScreenshotOnlyStateProviderTest(unittest.TestCase):
             self.assertNotIn("destructive controls", description)
             self.assertNotIn("Do not tap toggles", description)
 
-        self.assertIn("Click at screen position", registry.tools["click_at"].description)
+        self.assertIn(
+            "Click at screen position", registry.tools["click_at"].description
+        )
         self.assertIn("Duration is in seconds", registry.tools["swipe"].description)
 
     def test_screenshot_only_agent_sources_resize_screenshots(self):
@@ -483,7 +493,10 @@ class ScreenshotOnlyStateProviderTest(unittest.TestCase):
         registry = asyncio.run(run())
 
         self.assertIn("open_app", registry.tools)
-        self.assertEqual(registry.tools["open_app"].params, {"app_id": {"type": "string", "required": True}})
+        self.assertEqual(
+            registry.tools["open_app"].params,
+            {"app_id": {"type": "string", "required": True}},
+        )
         self.assertEqual(registry.tools["open_app"].deps, {"start_app"})
         self.assertIn("exact app identifier", registry.tools["open_app"].description)
 
@@ -528,7 +541,9 @@ class ScreenshotOnlyCoordinateValidationTest(unittest.TestCase):
         result = asyncio.run(click_at(1000, 2000, ctx=ctx))
 
         self.assertFalse(result.success)
-        self.assertIn("Coordinates must be inside the screenshot size 1000x2000", result.summary)
+        self.assertIn(
+            "Coordinates must be inside the screenshot size 1000x2000", result.summary
+        )
         self.assertEqual(driver.taps, [])
 
     def test_swipe_rejects_out_of_range_before_swiping(self):
@@ -537,7 +552,9 @@ class ScreenshotOnlyCoordinateValidationTest(unittest.TestCase):
         result = asyncio.run(swipe([500, 2000], [500, 500], ctx=ctx))
 
         self.assertFalse(result.success)
-        self.assertIn("Coordinates must be inside the screenshot size 1000x2000", result.summary)
+        self.assertIn(
+            "Coordinates must be inside the screenshot size 1000x2000", result.summary
+        )
         self.assertEqual(driver.swipes, [])
 
     def test_click_area_rejects_out_of_range_corner_before_tapping(self):
@@ -546,7 +563,9 @@ class ScreenshotOnlyCoordinateValidationTest(unittest.TestCase):
         result = asyncio.run(click_area(100, 100, 1000, 300, ctx=ctx))
 
         self.assertFalse(result.success)
-        self.assertIn("Coordinates must be inside the screenshot size 1000x2000", result.summary)
+        self.assertIn(
+            "Coordinates must be inside the screenshot size 1000x2000", result.summary
+        )
         self.assertEqual(driver.taps, [])
 
     def test_long_press_at_rejects_out_of_range_before_swiping(self):
@@ -555,7 +574,9 @@ class ScreenshotOnlyCoordinateValidationTest(unittest.TestCase):
         result = asyncio.run(long_press_at(-1, 500, ctx=ctx))
 
         self.assertFalse(result.success)
-        self.assertIn("Coordinates must be inside the screenshot size 1000x2000", result.summary)
+        self.assertIn(
+            "Coordinates must be inside the screenshot size 1000x2000", result.summary
+        )
         self.assertEqual(driver.swipes, [])
 
 

@@ -13,8 +13,14 @@ logger = logging.getLogger("mobilerun")
 
 
 SUPPORTED_PROVIDERS = [
-    "OpenAIResponses", "OpenAILike", "GoogleGenAI",
-    "Ollama", "Anthropic", "DeepSeek", "OpenRouter", "MiniMax",
+    "OpenAIResponses",
+    "OpenAILike",
+    "GoogleGenAI",
+    "Ollama",
+    "Anthropic",
+    "DeepSeek",
+    "OpenRouter",
+    "MiniMax",
 ]
 
 
@@ -38,13 +44,20 @@ def load_llm(provider_name: str, model: str | None = None, **kwargs: Any) -> LLM
     # --- OAuth providers ---
     if provider_name == "openai_oauth":
         from mobilerun.agent.utils.oauth.openai_oauth_llm import OpenAIOAuth
+
         return OpenAIOAuth(**{k: v for k, v in kwargs.items() if v is not None})
     if provider_name == "anthropic_oauth":
         from mobilerun.agent.utils.oauth.anthropic_oauth_llm import AnthropicOAuthLLM
+
         return AnthropicOAuthLLM(**{k: v for k, v in kwargs.items() if v is not None})
     if provider_name == "gemini_oauth_code_assist":
-        from mobilerun.agent.utils.oauth.gemini_oauth_code_assist_llm import GeminiOAuthCodeAssistLLM
-        return GeminiOAuthCodeAssistLLM(**{k: v for k, v in kwargs.items() if v is not None})
+        from mobilerun.agent.utils.oauth.gemini_oauth_code_assist_llm import (
+            GeminiOAuthCodeAssistLLM,
+        )
+
+        return GeminiOAuthCodeAssistLLM(
+            **{k: v for k, v in kwargs.items() if v is not None}
+        )
 
     # Legacy aliases: MiniMax and DeepSeek route through OpenAILike.
     if provider_name == "MiniMax":
@@ -56,10 +69,13 @@ def load_llm(provider_name: str, model: str | None = None, **kwargs: Any) -> LLM
 
     if provider_name == "DeepSeek":
         import os
+
         provider_name = "OpenAILike"
         kwargs.setdefault("api_key", os.environ.get("DEEPSEEK_API_KEY"))
         kwargs.setdefault("is_chat_model", True)
-        kwargs.setdefault("is_function_calling_model", kwargs.get("model") == "deepseek-chat")
+        kwargs.setdefault(
+            "is_function_calling_model", kwargs.get("model") == "deepseek-chat"
+        )
         kwargs.setdefault("context_window", 64000)
         if "base_url" in kwargs and "api_base" not in kwargs:
             kwargs["api_base"] = kwargs.pop("base_url")
@@ -68,24 +84,30 @@ def load_llm(provider_name: str, model: str | None = None, **kwargs: Any) -> LLM
     # --- Standard providers (inline dispatch) ---
     if provider_name == "OpenAIResponses":
         from llama_index.llms.openai.responses import OpenAIResponses
+
         llm_class = OpenAIResponses
     elif provider_name == "OpenAILike":
         from llama_index.llms.openai_like import OpenAILike
+
         llm_class = OpenAILike
         kwargs.setdefault("is_chat_model", True)
         if "base_url" in kwargs and "api_base" not in kwargs:
             kwargs["api_base"] = kwargs.pop("base_url")
     elif provider_name == "GoogleGenAI":
         from llama_index.llms.google_genai import GoogleGenAI
+
         llm_class = GoogleGenAI
     elif provider_name == "Ollama":
         from llama_index.llms.ollama import Ollama
+
         llm_class = Ollama
     elif provider_name == "Anthropic":
         from llama_index.llms.anthropic import Anthropic
+
         llm_class = Anthropic
     elif provider_name == "OpenRouter":
         from llama_index.llms.openrouter import OpenRouter
+
         llm_class = OpenRouter
     else:
         raise ValueError(
@@ -94,7 +116,9 @@ def load_llm(provider_name: str, model: str | None = None, **kwargs: Any) -> LLM
         )
 
     filtered_kwargs = {k: v for k, v in kwargs.items() if v is not None}
-    logger.debug(f"Initializing {llm_class.__name__} with kwargs: {list(filtered_kwargs.keys())}")
+    logger.debug(
+        f"Initializing {llm_class.__name__} with kwargs: {list(filtered_kwargs.keys())}"
+    )
     return llm_class(**filtered_kwargs)
 
 
