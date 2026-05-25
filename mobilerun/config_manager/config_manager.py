@@ -82,6 +82,13 @@ class FastAgentConfig:
 
 
 @dataclass
+class FastGameAgentConfig:
+    system_prompt: str = "config/prompts/fast_game_agent/system.jinja2"
+    user_prompt: str = "config/prompts/fast_game_agent/user.jinja2"
+    game_logs_path: str = "game_logs"
+
+
+@dataclass
 class ManagerConfig:
     vision: bool = False
     system_prompt: str = "config/prompts/manager/system.jinja2"
@@ -116,13 +123,25 @@ class AgentConfig:
     after_sleep_action: float = 1.0
     wait_for_stable_ui: float = 0.3
     use_normalized_coordinates: bool = False
+    game_mode: bool = False
 
     fast_agent: FastAgentConfig = field(default_factory=FastAgentConfig)
+    fast_game_agent: FastGameAgentConfig = field(default_factory=FastGameAgentConfig)
     manager: ManagerConfig = field(default_factory=ManagerConfig)
     executor: ExecutorConfig = field(default_factory=ExecutorConfig)
     app_cards: AppCardConfig = field(default_factory=AppCardConfig)
 
     def get_fast_agent_system_prompt_path(self) -> str:
+        return str(PathResolver.resolve(self.fast_agent.system_prompt, must_exist=True))
+
+    def get_fast_agent_user_prompt_path(self) -> str:
+        return str(PathResolver.resolve(self.fast_agent.user_prompt, must_exist=True))
+
+    def get_fast_game_agent_system_prompt_path(self) -> str:
+        return str(PathResolver.resolve(self.fast_game_agent.system_prompt, must_exist=True))
+
+    def get_fast_game_agent_user_prompt_path(self) -> str:
+        return str(PathResolver.resolve(self.fast_game_agent.user_prompt, must_exist=True))
         return str(PathResolver.resolve(self.fast_agent.system_prompt, must_exist=True))
 
     def get_fast_agent_user_prompt_path(self) -> str:
@@ -243,6 +262,12 @@ class MobileConfig:
                 temperature=0.2,
                 kwargs={},
             ),
+            "fast_game_agent": LLMProfile(
+                provider="GoogleGenAI",
+                model="gemini-3.1-flash-lite-preview",
+                temperature=0.2,
+                kwargs={},
+            ),
             "app_opener": LLMProfile(
                 provider="GoogleGenAI",
                 model="gemini-3.1-flash-lite-preview",
@@ -282,6 +307,13 @@ class MobileConfig:
             FastAgentConfig(**fast_agent_data) if fast_agent_data else FastAgentConfig()
         )
 
+        fast_game_agent_data = agent_data.get("fast_game_agent", {})
+        fast_game_agent_config = (
+            FastGameAgentConfig(**fast_game_agent_data)
+            if fast_game_agent_data
+            else FastGameAgentConfig()
+        )
+
         manager_data = agent_data.get("manager", {})
         manager_config = (
             ManagerConfig(**manager_data) if manager_data else ManagerConfig()
@@ -308,7 +340,9 @@ class MobileConfig:
             use_normalized_coordinates=agent_data.get(
                 "use_normalized_coordinates", False
             ),
+            game_mode=agent_data.get("game_mode", False),
             fast_agent=fast_agent_config,
+            fast_game_agent=fast_game_agent_config,
             manager=manager_config,
             executor=executor_config,
             app_cards=app_cards_config,

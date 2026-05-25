@@ -9,6 +9,7 @@ import asyncio
 import copy
 import logging
 import os
+import re
 from typing import TYPE_CHECKING, Optional, Type
 
 from llama_index.core.base.llms.types import ChatMessage, ImageBlock, TextBlock
@@ -40,6 +41,7 @@ from mobilerun.agent.fast_agent.xml_parser import (
 )
 from mobilerun.agent.usage import get_usage_from_response
 from mobilerun.agent.utils.chat_utils import limit_history
+from mobilerun.agent.utils.game_visualizer import annotate_swipe, save_game_log
 from mobilerun.agent.utils.inference import acall_with_retries
 from mobilerun.agent.utils.prompt_resolver import PromptResolver
 from mobilerun.agent.utils.tracing_setup import record_langfuse_screenshot
@@ -55,6 +57,10 @@ if TYPE_CHECKING:
     from mobilerun.tools.ui.provider import StateProvider
 
 logger = logging.getLogger("mobilerun")
+
+_SWIPE_SUMMARY_RE = re.compile(
+    r"Swiped from \((\d+),\s*(\d+)\) to \((\d+),\s*(\d+)\)"
+)
 
 
 class FastAgent(Workflow):
@@ -77,6 +83,7 @@ class FastAgent(Workflow):
         output_model: Type[BaseModel] | None = None,
         prompt_resolver: Optional[PromptResolver] = None,
         tracing_config: TracingConfig | None = None,
+        game_mode: bool = False,
         *args,
         **kwargs,
     ):
@@ -85,9 +92,10 @@ class FastAgent(Workflow):
 
         self.llm = llm
         self.agent_config = agent_config
-        self.config = agent_config.fast_agent
+        self.game_mode = game_mode
+        self.config = agent_config.fast_game_agent if game_mode else agent_config.fast_agent
         self.max_steps = agent_config.max_steps
-        self.vision = agent_config.fast_agent.vision
+        self.vision = agent_config.fast_agent.vision or game_mode
         self.debug = debug
         self.registry = registry
         self.action_ctx = action_ctx
@@ -127,7 +135,7 @@ class FastAgent(Workflow):
                 self.shared_state.custom_variables if self.shared_state else {}
             ),
             "output_schema": self._output_schema,
-            "parallel_tools": self.config.parallel_tools,
+            "parallel_tools": getattr(self.config, "parallel_tools", True),
             "vision": self.vision,
             "platform": self.shared_state.platform,
             "screenshot_only": bool(
@@ -135,42 +143,51 @@ class FastAgent(Workflow):
             ),
         }
 
-        custom_system_prompt = self.prompt_resolver.get_prompt("fast_agent_system")
-        if custom_system_prompt:
-            system_text = PromptLoader.render_template(
-                custom_system_prompt,
+        if self.game_mode:
+            system_text = await PromptLoader.load_prompt(
+                self.agent_config.get_fast_game_agent_system_prompt_path(),
                 template_context,
             )
         else:
-            system_text = await PromptLoader.load_prompt(
-                self.agent_config.get_fast_agent_system_prompt_path(),
-                template_context,
-            )
+            custom_system_prompt = self.prompt_resolver.get_prompt("fast_agent_system")
+            if custom_system_prompt:
+                system_text = PromptLoader.render_template(
+                    custom_system_prompt,
+                    template_context,
+                )
+            else:
+                system_text = await PromptLoader.load_prompt(
+                    self.agent_config.get_fast_agent_system_prompt_path(),
+                    template_context,
+                )
         return ChatMessage(role="system", content=system_text)
 
     async def _build_user_prompt(self, goal: str) -> ChatMessage:
         """Build initial user prompt message."""
-        custom_user_prompt = self.prompt_resolver.get_prompt("fast_agent_user")
-        if custom_user_prompt:
-            user_text = PromptLoader.render_template(
-                custom_user_prompt,
-                {
-                    "goal": goal,
-                    "variables": (
-                        self.shared_state.custom_variables if self.shared_state else {}
-                    ),
-                },
+        template_context = {
+            "goal": goal,
+            "variables": (
+                self.shared_state.custom_variables if self.shared_state else {}
+            ),
+        }
+
+        if self.game_mode:
+            user_text = await PromptLoader.load_prompt(
+                self.agent_config.get_fast_game_agent_user_prompt_path(),
+                template_context,
             )
         else:
-            user_text = await PromptLoader.load_prompt(
-                self.agent_config.get_fast_agent_user_prompt_path(),
-                {
-                    "goal": goal,
-                    "variables": (
-                        self.shared_state.custom_variables if self.shared_state else {}
-                    ),
-                },
-            )
+            custom_user_prompt = self.prompt_resolver.get_prompt("fast_agent_user")
+            if custom_user_prompt:
+                user_text = PromptLoader.render_template(
+                    custom_user_prompt,
+                    template_context,
+                )
+            else:
+                user_text = await PromptLoader.load_prompt(
+                    self.agent_config.get_fast_agent_user_prompt_path(),
+                    template_context,
+                )
         return ChatMessage(role="user", content=user_text)
 
     @step
@@ -327,7 +344,10 @@ class FastAgent(Workflow):
             # Screenshot → last user message
             if self.vision and screenshot:
                 if getattr(self.state_provider, "requires_coordinate_tools", False):
-                    screenshot = resize_image_to_max_side_with_grid(screenshot)
+                    use_norm = getattr(self.state_provider, "use_normalized", False)
+                    screenshot = resize_image_to_max_side_with_grid(
+                        screenshot, use_normalized=use_norm
+                    )
                 messages_to_send[last_user_idx].blocks.append(
                     ImageBlock(image=screenshot)
                 )
@@ -474,6 +494,21 @@ class FastAgent(Workflow):
                 )
             )
 
+            # Game mode: visualize swipe actions
+            if (
+                self.game_mode
+                and call.name == "swipe"
+                and action_result.success
+            ):
+                await _visualize_swipe(
+                    ctx=ctx,
+                    action_result=action_result,
+                    call_name=call.name,
+                    call_params=call.parameters,
+                    thought=self.shared_state.last_thought,
+                    logs_dir=self.config.game_logs_path,
+                )
+
             # Check if complete() was called successfully
             if self.shared_state.finished:
                 if self.shared_state.pending_user_messages:
@@ -566,3 +601,40 @@ class FastAgent(Workflow):
                 "tool_call_count": ev.tool_call_count,
             }
         )
+
+
+async def _visualize_swipe(
+    ctx: Context,
+    action_result: ActionResult,
+    call_name: str,
+    call_params: dict,
+    thought: str,
+    logs_dir: str,
+) -> None:
+    """Annotate screenshot with swipe markers and save game log."""
+    try:
+        screenshot = await ctx.store.get("screenshot")
+        if not screenshot:
+            logger.debug("No screenshot available for swipe visualization")
+            return
+
+        match = _SWIPE_SUMMARY_RE.search(action_result.summary)
+        if not match:
+            logger.debug(
+                f"Could not parse swipe coordinates from summary: {action_result.summary}"
+            )
+            return
+
+        x1, y1, x2, y2 = int(match[1]), int(match[2]), int(match[3]), int(match[4])
+
+        annotated = annotate_swipe(screenshot, x1, y1, x2, y2)
+        save_game_log(
+            annotated_img_bytes=annotated,
+            thought_text=thought or "",
+            tool_name=call_name,
+            tool_params=call_params,
+            logs_dir=logs_dir,
+        )
+        logger.debug(f"Game swipe visualized: ({x1},{y1}) -> ({x2},{y2})")
+    except Exception:
+        logger.warning("Failed to visualize swipe for game mode", exc_info=True)
