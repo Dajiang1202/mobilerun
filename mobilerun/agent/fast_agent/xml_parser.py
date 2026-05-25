@@ -23,6 +23,16 @@ _PARAM_RE = re.compile(
     re.DOTALL,
 )
 
+# Fix malformed <parameter ...> where LLMs omit name= on parameter attributes.
+# Patterns observed from qwen / other VL models:
+#   <parameter x>        → <parameter name="x">
+#   <parameter x">       → <parameter name="x">
+#   <parameter "x">      → <parameter name="x">
+# The negative lookahead (?!name=) avoids rewriting well-formed tags.
+_FIX_BARE_PARAM_RE = re.compile(
+    r'<parameter\s+((?!name=)\S+?)\s*>',
+)
+
 
 @dataclass
 class ToolCall:
@@ -135,10 +145,28 @@ def extract_add_memory(text: str) -> str:
     return "\n".join(m.strip() for m in matches if m.strip())
 
 
+def _fix_bare_param_attrs(block: str) -> str:
+    """Fix malformed parameter XML where LLMs omit ``name=``.
+
+    Some LLMs (e.g. qwen) produce variants like ``<parameter x>``,
+    ``<parameter x">``, or ``<parameter "x">`` instead of the expected
+    ``<parameter name="x">``.  This rewrites them so the XML parser can
+    extract the parameter name correctly.
+    """
+
+    def _clean(m: re.Match) -> str:
+        raw = m.group(1)
+        name = re.sub(r"[^\w]", "", raw)
+        return f'<parameter name="{name}">'
+
+    return _FIX_BARE_PARAM_RE.sub(_clean, block)
+
+
 def _parse_tool_call_block(
     block: str, param_types: Optional[Dict[str, str]]
 ) -> List[ToolCall]:
     block = _sanitize_param_content(block)
+    block = _fix_bare_param_attrs(block)
 
     try:
         root = ET.fromstring(f"<root>{block}</root>")

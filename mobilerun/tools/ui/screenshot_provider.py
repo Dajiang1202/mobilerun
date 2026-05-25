@@ -18,8 +18,9 @@ class ScreenshotOnlyStateProvider(StateProvider):
     supported = {"convert_point", "direct_text_input"}
     requires_coordinate_tools = True
 
-    def __init__(self, driver: "DeviceDriver") -> None:
+    def __init__(self, driver: "DeviceDriver", use_normalized: bool = False) -> None:
         super().__init__(driver)
+        self.use_normalized = use_normalized
 
     async def get_state(self) -> UIState:
         screenshot = await self.driver.screenshot()
@@ -36,9 +37,17 @@ class ScreenshotOnlyStateProvider(StateProvider):
         max_x = max(screen_width - 1, 0)
         max_y = max(screen_height - 1, 0)
 
-        return UIState(
-            elements=[],
-            formatted_text=(
+        if self.use_normalized:
+            coord_instruction = (
+                "Screenshot-only mode is active (normalized [0-1000] coordinates). "
+                "There is no accessibility tree or element index list. "
+                "Inspect the screenshot and use coordinate actions with "
+                "normalized [0-1000] values: x from 0 (left) to 1000 (right), "
+                "y from 0 (top) to 1000 (bottom). "
+                f"({max_x},{max_y}) maps to (1000,1000). "
+            )
+        else:
+            coord_instruction = (
                 "Screenshot-only mode is active. There is no accessibility tree "
                 "or element index list. Inspect the screenshot and use coordinate "
                 "actions in the screenshot pixel coordinates shown to the model. "
@@ -47,7 +56,14 @@ class ScreenshotOnlyStateProvider(StateProvider):
                 "numbers. "
                 f"The screenshot shown to the model is {screen_width}x{screen_height}; "
                 "(0,0) is top-left and "
-                f"({max_x},{max_y}) is bottom-right. Prefer click_at on the "
+                f"({max_x},{max_y}) is bottom-right. "
+            )
+
+        return UIState(
+            elements=[],
+            formatted_text=(
+                coord_instruction
+                + "Prefer click_at on the "
                 "center of visible text or controls, especially in dense lists, "
                 "adjacent rows, and compact menus. Use click_area only for large, "
                 "unambiguous targets. If a target row is partially visible or "
@@ -65,7 +81,7 @@ class ScreenshotOnlyStateProvider(StateProvider):
             },
             screen_width=screen_width,
             screen_height=screen_height,
-            use_normalized=False,
+            use_normalized=self.use_normalized,
             coordinate_scale_x=input_width / screen_width,
             coordinate_scale_y=input_height / screen_height,
         )

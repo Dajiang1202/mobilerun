@@ -81,6 +81,10 @@ def get_usage_from_response(provider: str, chat_rsp: ChatResponse) -> UsageResul
         from openai.types import CompletionUsage as OpenAIUsage
 
         usage: OpenAIUsage = rsp.usage
+        if usage is None:
+            return UsageResult(
+                request_tokens=0, response_tokens=0, total_tokens=0, requests=1
+            )
         return UsageResult(
             request_tokens=usage.prompt_tokens,
             response_tokens=usage.completion_tokens,
