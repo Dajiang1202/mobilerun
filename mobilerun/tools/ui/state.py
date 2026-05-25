@@ -135,7 +135,9 @@ class UIState:
     def convert_point(self, x: int, y: int) -> Tuple[int, int]:
         """Convert point to absolute pixels if normalized mode is active."""
         if self.use_normalized:
-            return to_absolute(x, y, self.screen_width, self.screen_height)
+            input_w = self.screen_width * self.coordinate_scale_x
+            input_h = self.screen_height * self.coordinate_scale_y
+            return to_absolute(x, y, input_w, input_h)
         return (
             int(round(x * self.coordinate_scale_x)),
             int(round(y * self.coordinate_scale_y)),

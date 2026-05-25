@@ -495,7 +495,10 @@ class MobileAgent(Workflow):
         if self._injected_state_provider is not None:
             self.state_provider = self._injected_state_provider
         elif self.config.agent.vision_only or is_visual_remote:
-            self.state_provider = ScreenshotOnlyStateProvider(driver)
+            self.state_provider = ScreenshotOnlyStateProvider(
+                driver,
+                use_normalized=self.config.agent.use_normalized_coordinates,
+            )
         elif is_ios:
             self.state_provider = IOSStateProvider(
                 driver,
@@ -523,6 +526,7 @@ class MobileAgent(Workflow):
                 "requires_coordinate_tools",
                 False,
             ),
+            use_normalized=self.config.agent.use_normalized_coordinates,
         )
 
         # User custom tools

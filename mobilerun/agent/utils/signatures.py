@@ -29,6 +29,7 @@ async def build_tool_registry(
     platform: str = "android",
     exact_app_launch: bool = False,
     screenshot_only: bool = False,
+    use_normalized: bool = False,
 ) -> tuple[ToolRegistry, set[str]]:
     """Build a ToolRegistry with all standard mobilerun tools.
 
@@ -42,6 +43,8 @@ async def build_tool_registry(
             launcher that only depends on ``start_app``.
         screenshot_only: When true, coordinate tool descriptions refer to the
             screenshot shown to the model. Normal mode keeps generic wording.
+        use_normalized: When true, coordinate descriptions mention [0-1000]
+            normalized range instead of pixel coordinates.
 
     Returns:
         ``(registry, standard_tool_names)`` where *standard_tool_names* is the
@@ -53,35 +56,67 @@ async def build_tool_registry(
     registry = ToolRegistry()
 
     if screenshot_only:
-        click_at_description = (
-            "Click at screenshot position (x, y). Use screenshot pixel "
-            "coordinates shown to the model. The coordinate grid is only a "
-            "reference; do not use grid-cell numbers. Prefer click_at for "
-            "dense lists, adjacent rows, compact menus, visible text, and "
-            "small controls. "
-            'Usage: {"action": "click_at", "x": 500, "y": 300}'
-        )
-        click_area_description = (
-            "Click the center of a screenshot area (x1, y1, x2, y2). Use "
-            "screenshot pixel coordinates shown to the model. The coordinate "
-            "grid is only a reference; do not use grid-cell numbers. Use "
-            "click_area only for large, unambiguous targets; prefer click_at "
-            "for dense rows or text labels. "
-            'Usage: {"action": "click_area", "x1": 100, "y1": 200, "x2": 300, "y2": 400}'
-        )
-        long_press_at_description = (
-            "Long press at screenshot position (x, y). Use screenshot pixel "
-            "coordinates shown to the model. The coordinate grid is only a "
-            "reference; do not use grid-cell numbers. "
-            'Usage: {"action": "long_press_at", "x": 500, "y": 300}'
-        )
-        swipe_description = (
-            "Swipe from screenshot coordinate to coordinate2. Use screenshot "
-            "pixel coordinates shown to the model. The coordinate grid is only "
-            "a reference; do not use grid-cell numbers. Duration is in seconds "
-            "(default: 1.0). "
-            'Usage Example: {"action": "swipe", "coordinate": [x1, y1], "coordinate2": [x2, y2], "duration": 1.5}'
-        )
+        if use_normalized:
+            coord_note = (
+                "Use normalized [0-1000] coordinates: x from 0 (left) to 1000 "
+                "(right), y from 0 (top) to 1000 (bottom). The coordinate grid "
+                "is only a visual reference; do not use grid-cell numbers. "
+            )
+            click_at_description = (
+                "Click at normalized position (x, y) in [0-1000] range. "
+                + coord_note
+                + "Prefer click_at for dense lists, adjacent rows, compact "
+                "menus, visible text, and small controls. "
+                'Usage: {"action": "click_at", "x": 500, "y": 300}'
+            )
+            click_area_description = (
+                "Click the center of an area (x1, y1, x2, y2) in [0-1000] range. "
+                + coord_note
+                + "Use click_area only for large, unambiguous targets; prefer "
+                "click_at for dense rows or text labels. "
+                'Usage: {"action": "click_area", "x1": 100, "y1": 200, "x2": 300, "y2": 400}'
+            )
+            long_press_at_description = (
+                "Long press at normalized position (x, y) in [0-1000] range. "
+                + coord_note
+                + 'Usage: {"action": "long_press_at", "x": 500, "y": 300}'
+            )
+            swipe_description = (
+                "Swipe from coordinate to coordinate2 in [0-1000] range. "
+                + coord_note
+                + "Duration is in seconds (default: 1.0). "
+                'Usage Example: {"action": "swipe", "coordinate": [x1, y1], "coordinate2": [x2, y2], "duration": 1.5}'
+            )
+        else:
+            click_at_description = (
+                "Click at screenshot position (x, y). Use screenshot pixel "
+                "coordinates shown to the model. The coordinate grid is only a "
+                "reference; do not use grid-cell numbers. Prefer click_at for "
+                "dense lists, adjacent rows, compact menus, visible text, and "
+                "small controls. "
+                'Usage: {"action": "click_at", "x": 500, "y": 300}'
+            )
+            click_area_description = (
+                "Click the center of a screenshot area (x1, y1, x2, y2). Use "
+                "screenshot pixel coordinates shown to the model. The coordinate "
+                "grid is only a reference; do not use grid-cell numbers. Use "
+                "click_area only for large, unambiguous targets; prefer click_at "
+                "for dense rows or text labels. "
+                'Usage: {"action": "click_area", "x1": 100, "y1": 200, "x2": 300, "y2": 400}'
+            )
+            long_press_at_description = (
+                "Long press at screenshot position (x, y). Use screenshot pixel "
+                "coordinates shown to the model. The coordinate grid is only a "
+                "reference; do not use grid-cell numbers. "
+                'Usage: {"action": "long_press_at", "x": 500, "y": 300}'
+            )
+            swipe_description = (
+                "Swipe from screenshot coordinate to coordinate2. Use screenshot "
+                "pixel coordinates shown to the model. The coordinate grid is only "
+                "a reference; do not use grid-cell numbers. Duration is in seconds "
+                "(default: 1.0). "
+                'Usage Example: {"action": "swipe", "coordinate": [x1, y1], "coordinate2": [x2, y2], "duration": 1.5}'
+            )
     else:
         click_at_description = (
             "Click at screen position (x, y). "
