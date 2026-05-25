@@ -32,8 +32,9 @@ def _get_required_profiles(
     """
     if config.agent.reasoning:
         profiles = ["manager", "executor", "app_opener"]
+    elif config.agent.game_mode:
+        profiles = ["fast_game_agent", "app_opener"]
     else:
-        # Direct execution mode only needs FastAgent and helper agents
         profiles = ["fast_agent", "app_opener"]
 
     # Add structured_output if output_model is provided
@@ -166,6 +167,7 @@ def load_agent_llms(
             "manager": custom_llm,
             "executor": custom_llm,
             "fast_agent": custom_llm,
+            "fast_game_agent": custom_llm,
             "app_opener": custom_llm,
         }
 

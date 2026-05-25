@@ -55,9 +55,16 @@ def resize_image_to_max_side(
 
 
 def resize_image_to_max_side_with_grid(
-    image: bytes, max_side: int = MODEL_SCREENSHOT_MAX_SIDE, divisions: int = 10
+    image: bytes,
+    max_side: int = MODEL_SCREENSHOT_MAX_SIDE,
+    divisions: int = 10,
+    use_normalized: bool = False,
 ) -> bytes:
-    """Resize image and overlay a model-only coordinate grid."""
+    """Resize image and overlay a coordinate grid.
+
+    When *use_normalized* is True, grid labels show [0-1000] normalized values
+    instead of pixel coordinates.
+    """
     width, height = image_dimensions(image)
     target_width, target_height = fit_dimensions_to_max_side(width, height, max_side)
 
@@ -69,13 +76,17 @@ def resize_image_to_max_side_with_grid(
                 Image.Resampling.LANCZOS,
             )
 
-        _draw_coordinate_grid(screenshot, divisions=divisions)
+        _draw_coordinate_grid(
+            screenshot, divisions=divisions, use_normalized=use_normalized
+        )
         output = BytesIO()
         screenshot.save(output, format="PNG")
         return output.getvalue()
 
 
-def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
+def _draw_coordinate_grid(
+    image: Image.Image, divisions: int, use_normalized: bool = False
+) -> None:
     width, height = image.size
     if divisions <= 0 or width <= 0 or height <= 0:
         return
@@ -90,6 +101,8 @@ def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
     label_shadow = (0, 0, 0, 190)
     label_bg = (0, 0, 0, 115)
 
+    max_norm = 1000
+
     for index in range(divisions + 1):
         x = round(index * (width - 1) / divisions)
         y = round(index * (height - 1) / divisions)
@@ -98,9 +111,17 @@ def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
         )
         draw.line([(x, 0), (x, height - 1)], fill=color, width=1)
         draw.line([(0, y), (width - 1, y)], fill=color, width=1)
+
+        if use_normalized:
+            x_label = f"x={round(index * max_norm / divisions)}"
+            y_label = f"y={round(index * max_norm / divisions)}"
+        else:
+            x_label = f"x={x}"
+            y_label = f"y={y}"
+
         _draw_grid_label(
             draw,
-            f"x={x}",
+            x_label,
             (min(x + 3, width - 38), 4),
             font,
             label_fill,
@@ -109,7 +130,7 @@ def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
         )
         _draw_grid_label(
             draw,
-            f"y={y}",
+            y_label,
             (4, min(y + 3, height - 14)),
             font,
             label_fill,

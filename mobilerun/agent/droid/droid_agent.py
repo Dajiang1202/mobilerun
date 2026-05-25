@@ -213,6 +213,7 @@ class MobileAgent(Workflow):
         )
         if (
             self.config.agent.vision_only
+            or self.config.agent.game_mode
             or control_backend == VISUAL_REMOTE_CONNECTION
             or getattr(state_provider, "requires_coordinate_tools", False)
         ):
@@ -277,6 +278,7 @@ class MobileAgent(Workflow):
                 self.manager_llm = llms.get("manager")
                 self.executor_llm = llms.get("executor")
                 self.fast_agent_llm = llms.get("fast_agent")
+                self.fast_game_agent_llm = llms.get("fast_game_agent", self.fast_agent_llm)
                 self.app_opener_llm = llms.get("app_opener")
                 self.structured_output_llm = llms.get(
                     "structured_output", self.fast_agent_llm
@@ -285,6 +287,7 @@ class MobileAgent(Workflow):
                 self.manager_llm = llms
                 self.executor_llm = llms
                 self.fast_agent_llm = llms
+                self.fast_game_agent_llm = llms
                 self.app_opener_llm = llms
                 self.structured_output_llm = llms
         else:
@@ -664,8 +667,13 @@ class MobileAgent(Workflow):
         logger.debug(f"🔧 Executing task: {ev.instruction}")
 
         try:
+            agent_llm = (
+                self.fast_game_agent_llm
+                if self.config.agent.game_mode
+                else self.fast_agent_llm
+            )
             agent = FastAgent(
-                llm=self.fast_agent_llm,
+                llm=agent_llm,
                 agent_config=self.config.agent,
                 registry=self.registry,
                 action_ctx=self.action_ctx,
@@ -677,6 +685,7 @@ class MobileAgent(Workflow):
                 prompt_resolver=self.prompt_resolver,
                 timeout=self.timeout,
                 tracing_config=self.config.tracing,
+                game_mode=self.config.agent.game_mode,
             )
 
             handler = agent.run(
