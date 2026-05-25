@@ -26,9 +26,9 @@ def solve_board(board_json: dict | str) -> dict:
     if isinstance(board_json, str):
         board_json = json.loads(board_json)
 
-    rows: int = int(board_json["rows"])
-    cols: int = int(board_json["cols"])
     tiles: list[list[str]] = [[str(t).lower().strip() for t in row] for row in board_json["tiles"]]
+    rows = len(tiles)
+    cols = len(tiles[0]) if tiles else 0
     board_left: float = float(board_json.get("board_left", 0))
     board_top: float = float(board_json.get("board_top", 0))
     board_right: float = float(board_json.get("board_right", 1000))
