@@ -17,14 +17,14 @@ import logging
 import re
 import time
 
-from openai import OpenAI
 from jinja2 import Template
+from openai import OpenAI
 
 from mobilerun.agent.utils.game_skill import solve_board
 from mobilerun.agent.utils.game_visualizer import annotate_swipe, save_game_log
 from mobilerun.config_manager.loader import ConfigLoader
 from mobilerun.config_manager.path_resolver import PathResolver
-from mobilerun.tools.driver.android import AndroidDriver
+from mobilerun.tools.driver import create_driver
 from mobilerun.tools.helpers.coordinate import to_absolute
 from mobilerun.tools.helpers.images import (
     image_dimensions,
@@ -74,7 +74,7 @@ async def main():
     # 同步 OpenAI 客户端（替代 AsyncOpenAI）
     client = OpenAI(api_key=api_key, base_url=base_url)
 
-    driver = AndroidDriver(serial=serial)
+    driver = create_driver(config.device)
     await driver.connect()
     print(f"Connected: {serial}  Model: {model}")
 
