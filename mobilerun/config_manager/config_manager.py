@@ -139,16 +139,13 @@ class AgentConfig:
         return str(PathResolver.resolve(self.fast_agent.user_prompt, must_exist=True))
 
     # 以下为游戏模式专用的提示词路径解析方法
+    # 注意：get_fast_game_agent_user_prompt_path 曾有一个死代码 return 和重复
+    # 的 get_fast_agent_user_prompt_path 定义，已清理以通过 ruff lint 检查
     def get_fast_game_agent_system_prompt_path(self) -> str:
         return str(PathResolver.resolve(self.fast_game_agent.system_prompt, must_exist=True))
 
     def get_fast_game_agent_user_prompt_path(self) -> str:
         return str(PathResolver.resolve(self.fast_game_agent.user_prompt, must_exist=True))
-        # 注意：下面的 return 为死代码，可能是合并时遗留
-        return str(PathResolver.resolve(self.fast_agent.system_prompt, must_exist=True))
-
-    def get_fast_agent_user_prompt_path(self) -> str:
-        return str(PathResolver.resolve(self.fast_agent.user_prompt, must_exist=True))
 
     def get_manager_system_prompt_path(self) -> str:
         return str(PathResolver.resolve(self.manager.system_prompt, must_exist=True))

@@ -41,8 +41,10 @@ from mobilerun.agent.fast_agent.xml_parser import (
 )
 from mobilerun.agent.usage import get_usage_from_response
 from mobilerun.agent.utils.chat_utils import limit_history
-# game_visualizer: 游戏模式下在截图上标注 swipe 箭头并保存调试日志
-from mobilerun.agent.utils.game_visualizer import annotate_swipe, save_game_log
+from mobilerun.agent.utils.game_visualizer import (  # 游戏模式下在截图上标注 swipe 箭头并保存调试日志
+    annotate_swipe,
+    save_game_log,
+)
 from mobilerun.agent.utils.inference import acall_with_retries
 from mobilerun.agent.utils.prompt_resolver import PromptResolver
 from mobilerun.agent.utils.tracing_setup import record_langfuse_screenshot
