@@ -24,7 +24,7 @@ from mobilerun.agent.utils.inference import acall_with_retries
 from mobilerun.agent.utils.llm_picker import load_llm
 from mobilerun.config_manager.loader import ConfigLoader
 from mobilerun.config_manager.path_resolver import PathResolver
-from mobilerun.tools.driver.android import AndroidDriver
+from mobilerun.tools.driver import create_driver
 from mobilerun.tools.helpers.coordinate import to_absolute
 from mobilerun.tools.helpers.images import (
     image_dimensions,
@@ -192,7 +192,7 @@ async def main():
     llm = load_llm(profile.provider, **kwargs)
     print(f"LLM provider: {profile.provider}  model: {profile.model}")
 
-    driver = AndroidDriver(serial=serial)
+    driver = create_driver(config.device)
     await driver.connect()
     print(f"Connected: {serial}")
 
