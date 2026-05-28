@@ -1,10 +1,11 @@
 """
-Quick Start: 开心消消乐 — Skill 模式连续执行 （Stream 版本）
+Quick Start: Match-3 Game — Skill 模式连续执行 (通用版, Stream)
 
 与 quick_start_game.py 功能相同，但使用 load_llm() + acall_with_retries()
 替代 AsyncOpenAI 直接调用，支持流式输出和自动重试。
 
 流程: 截图 → VLM 识别棋盘为 JSON → Python 贪心求解 → 执行 swipe → 循环
+适配任意三消游戏，VLM 自动识别棋盘布局和棋子类型。
 """
 import asyncio
 import json
@@ -60,7 +61,7 @@ async def main():
 
     # ── 2. 加载感知提示词 ──────────────────────────────────────────
     prompt_path = PathResolver.resolve(
-        "config/prompts/fast_game_agent/system_skill.jinja2", must_exist=True
+        "config/prompts/fast_game_agent/system_skill_generic.jinja2", must_exist=True
     )
     system_text = Template(prompt_path.read_text(encoding="utf-8")).render()
 
