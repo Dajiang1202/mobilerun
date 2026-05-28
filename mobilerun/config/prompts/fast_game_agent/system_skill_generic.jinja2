@@ -23,16 +23,38 @@ Look at the screenshot and output a JSON object describing the board layout and 
 
 ## Rules
 
-1. **Board bounds**: Use the [0-1000] grid on the screenshot. board_left/board_top/board_right/board_bottom define the bounding box of the tile grid area.
-2. **Rows and cols**: Count exactly how many rows and columns of tiles you see.
-3. **Tiles**: Identify each tile by its visual appearance. Use short, consistent labels:
-   - Assign the **same label** to tiles that look visually identical.
-   - Use simple descriptive names based on the tile's most distinctive feature:
-     - **Dominant color**: e.g. "red", "blue", "green", "yellow", "purple", "orange"
-     - **Shape or icon**: e.g. "star", "heart", "diamond", "circle", "triangle"
-     - **Combined**: e.g. "red_heart", "blue_star" if both color and shape vary
-   - **CRITICAL**: Be 100% consistent — identical-looking tiles MUST get identical labels.
-   - For empty/blank cells use **"empty"**.
-   - For obstacles (ice, chains, stone, locked tiles, etc.) use **"blocked"**.
-4. tiles[row][col] — row 0 is top, col 0 is left.
-5. Output ONLY the JSON. No markdown, no explanation, no backticks. Pure JSON.
+### 1. Board bounds
+Use the [0-1000] grid on the screenshot. board_left/board_top/board_right/board_bottom define the **bounding rectangle** of the entire tile grid area. The grid must always be represented as a complete rectangle.
+
+### 2. Irregular board — pad to rectangle with "empty"
+The board may have an irregular shape (non-rectangular outline, cut corners, missing edge cells, etc.). Find the tightest bounding rectangle that covers the entire playable area, then fill every cell:
+- Cells **inside** the board boundary that contain actual tiles → identify the tile type.
+- Cells **outside** the board boundary (empty background, no tile present) → mark as **"empty"**.
+- The tiles array MUST be rectangular (every row has the same number of columns = cols).
+
+### 3. Identifying tile types
+Use short, consistent labels for normal tiles:
+- Assign the **same label** to tiles that look visually identical.
+- Use simple descriptive names based on the tile's most distinctive feature:
+  - **Dominant color**: e.g. "red", "blue", "green", "yellow", "purple", "orange"
+  - **Shape or icon**: e.g. "star", "heart", "diamond", "circle", "triangle"
+  - **Combined**: e.g. "red_heart", "blue_star" if both color and shape vary
+- **CRITICAL**: Be 100% consistent — identical-looking tiles MUST get identical labels.
+
+### 4. Special cells — "empty" and "blocked"
+Use these two special labels for non-playable cells:
+
+**"empty"** — no tile at all:
+- Cells outside the irregular board boundary (background area padded to rectangle).
+- Truly blank/empty cells within the grid.
+
+**"blocked"** — a tile exists but cannot be moved or matched. Mark as "blocked" when you see ANY of the following:
+- **Obstacles**: ice, chains, stone, cages, locked tiles, wooden boxes, or other barrier overlays.
+- **Semi-transparent overlay**: a tile that is partially visible but covered by a translucent layer (frost, fog, web, slime, etc.) — the tile underneath is inactive.
+- **Solid color cover**: an entire cell filled with a single opaque color block (e.g. solid brown square, solid gray patch) that looks visually distinct from all normal game pieces — this is not a playable tile, it is a blocker.
+
+### 5. Layout
+tiles[row][col] — row 0 is top, col 0 is left.
+
+### 6. Output
+Output ONLY the JSON. No markdown, no explanation, no backticks. Pure JSON.
