@@ -143,8 +143,10 @@ class DeviceConfig:
     control_backend: Optional[str] = None
     device_id: str = "auto"
     use_tcp: bool = False
-    platform: str = "android"  # "android" or "ios"
+    platform: str = "android"  # "android", "harmonyos", or "ios"
     auto_setup: bool = True  # auto-install/fix portal before each run
+    hdc_path: str = "hdc"  # HarmonyOS HDC binary path (ignored on other platforms)
+    screenshot_method: str = "auto"  # HarmonyOS: "auto", "snapshot", or "screenCap"
 
 
 @dataclass
