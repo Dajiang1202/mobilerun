@@ -11,6 +11,8 @@ import asyncio
 import logging
 import math
 import shutil
+import tempfile
+from pathlib import Path
 
 from mobilerun.tools.driver.base import DeviceDriver
 
@@ -96,42 +98,103 @@ class HarmonyOSDriver(DeviceDriver):
         await self.ensure_connected()
 
         if self._screenshot_method in ("snapshot", "auto"):
-            returncode, stdout, stderr = await self._hdc(
-                "shell", "snapshot_display"
-            )
-            if returncode == 0 and stdout.strip():
-                return stdout
-            if self._screenshot_method == "snapshot":
-                raise RuntimeError(
-                    f"snapshot_display failed: {stderr.decode(errors='replace')}"
-                )
-            logger.debug("snapshot_display empty/failed, falling back to screenCap")
+            try:
+                return await self._screenshot_via_snapshot_display()
+            except Exception as e:
+                if self._screenshot_method == "snapshot":
+                    raise
+                logger.debug("snapshot_display failed, falling back to screenCap: %s", e)
 
         return await self._screenshot_via_screencap()
+
+    async def _screenshot_via_snapshot_display(self) -> bytes:
+        """Take screenshot using snapshot_display (saves to file then pulls)."""
+        # Try running snapshot_display, it saves to a temp file automatically
+        rc, stdout, stderr = await self._hdc(
+            "shell", "snapshot_display"
+        )
+        if rc != 0:
+            raise RuntimeError(
+                f"snapshot_display failed: {stderr.decode(errors='replace')}"
+            )
+
+        # Parse output to find the saved path
+        output = stdout.decode(errors='replace')
+        import re
+        match = re.search(r'write to ([^\s]+)', output)
+        if not match:
+            raise RuntimeError(f"Could not parse snapshot path from: {output}")
+        remote_path = match.group(1)
+
+        # Pull the file to a temporary local file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
+            local_path = Path(f.name)
+        try:
+            rc, _, stderr = await self._hdc(
+                "file", "recv", remote_path, str(local_path)
+            )
+            if rc != 0:
+                raise RuntimeError(
+                    f"Failed to receive screenshot: {stderr.decode(errors='replace')}"
+                )
+            return local_path.read_bytes()
+        finally:
+            # Cleanup both remote and local files
+            try:
+                local_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                await self._hdc("shell", "rm", "-f", remote_path)
+            except Exception:
+                pass
 
     async def _screenshot_via_screencap(self) -> bytes:
         """Two-step screenshot: capture to temp file, then pull via file recv."""
         remote_path = "/data/local/tmp/mobilerun_hdc_screenshot.png"
 
+        # Try without -p first (some versions use different args)
         rc, _, stderr = await self._hdc(
-            "shell", "uitest", "screenCap", "-p", remote_path
+            "shell", "uitest", "screenCap", remote_path
         )
         if rc != 0:
-            raise RuntimeError(
-                f"screenCap failed: {stderr.decode(errors='replace')}"
+            # Try with -p
+            rc, _, stderr = await self._hdc(
+                "shell", "uitest", "screenCap", "-p", remote_path
             )
+            if rc != 0:
+                # Try just screenCap without args (may output to stdout)
+                rc, stdout, stderr = await self._hdc(
+                    "shell", "uitest", "screenCap"
+                )
+                if rc == 0 and stdout:
+                    return stdout
+                raise RuntimeError(
+                    f"screenCap failed: {stderr.decode(errors='replace')}"
+                )
 
-        rc, stdout, stderr = await self._hdc(
-            "file", "recv", remote_path, "-"
-        )
-        # Best-effort cleanup of remote temp file
-        await self._hdc("shell", "rm", "-f", remote_path)
-
-        if rc != 0:
-            raise RuntimeError(
-                f"file recv failed: {stderr.decode(errors='replace')}"
+        # Pull the file to a temporary local file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f:
+            local_path = Path(f.name)
+        try:
+            rc, _, stderr = await self._hdc(
+                "file", "recv", remote_path, str(local_path)
             )
-        return stdout
+            if rc != 0:
+                raise RuntimeError(
+                    f"Failed to receive screenshot: {stderr.decode(errors='replace')}"
+                )
+            return local_path.read_bytes()
+        finally:
+            # Cleanup both remote and local files
+            try:
+                local_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                await self._hdc("shell", "rm", "-f", remote_path)
+            except Exception:
+                pass
 
     # ── Input ───────────────────────────────────────────────────────────
 
