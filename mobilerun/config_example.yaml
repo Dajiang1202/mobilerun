@@ -123,8 +123,11 @@ device:
   device_id: auto
   # Use TCP communication instead of usb
   use_tcp: false
-  # Platform: android or ios but currently only android is supported
+  # Platform: android, harmonyos, or ios
   platform: android
+  # HarmonyOS-specific settings (ignored on other platforms)
+  # hdc_path: hdc           # path to hdc binary
+  # screenshot_method: auto  # "auto", "snapshot", or "screenCap"
   # Auto-install/update Portal APK and enable accessibility before each run
   auto_setup: true
 

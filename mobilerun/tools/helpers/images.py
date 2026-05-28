@@ -12,12 +12,23 @@ MODEL_SCREENSHOT_MAX_SIDE = 2048
 
 def image_dimensions(image: bytes) -> tuple[int, int]:
     """Return ``(width, height)`` for PNG or JPEG bytes."""
+    # Fast path: try magic number first
     if image.startswith(b"\x89PNG\r\n\x1a\n") and len(image) >= 24:
         width, height = struct.unpack(">II", image[16:24])
         return int(width), int(height)
 
     if image.startswith(b"\xff\xd8"):
-        return _jpeg_dimensions(image)
+        try:
+            return _jpeg_dimensions(image)
+        except ValueError:
+            pass
+
+    # Fallback: use PIL for more robust parsing (handles edge cases and HarmonyOS screenshots)
+    try:
+        with Image.open(BytesIO(image)) as img:
+            return img.width, img.height
+    except Exception:
+        pass
 
     raise ValueError("Unsupported screenshot image format. Expected PNG or JPEG.")
 

@@ -3,14 +3,14 @@ import asyncio
 from pathlib import Path
 
 from mobilerun.config_manager.loader import ConfigLoader
-from mobilerun.tools.driver.android import AndroidDriver
+from mobilerun.tools.driver import create_driver
 
 
 async def main():
     config = ConfigLoader.load()
     serial = config.device.serial
 
-    driver = AndroidDriver(serial=serial)
+    driver = create_driver(config.device)
     await driver.connect()
     print(f"已连接设备: {serial}")
 
