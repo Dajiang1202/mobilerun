@@ -7,14 +7,22 @@ board JSON (perception), then this module finds the swap and computes coordinate
 from __future__ import annotations
 
 import json
+import random
 from typing import Any
 
 # 不可交换/不可消除的特殊块类型
 _NON_SWAPPABLE = {"empty", "blocked"}
 
+# 疑似误识别的方块关键词（blocked/empty 被 VLM 误识别为普通方块时，常被标为方形）
+_DEPRIORITIZE_KEYWORDS = ("square", "block", "cube", "box")
+
 
 def solve_board(board_json: dict | str) -> dict:
     """Find a valid 3-match swap on the given board.
+
+    Collects ALL valid swaps, deprioritizes square-shaped tiles (often
+    misrecognized blocked/empty cells), then randomly picks from the best
+    candidates to avoid deterministic loops when recognition is unstable.
 
     Args:
         board_json: Dict (or JSON string) with keys:
@@ -23,8 +31,8 @@ def solve_board(board_json: dict | str) -> dict:
             (all in [0-1000] normalized coordinates).
 
     Returns:
-        Dict with ``found``, ``from``, ``to``, ``tile``, ``direction``,
-        ``coordinates``, and ``match_description``.
+        Dict with ``found``, ``from``, ``to``, ``tile_a``, ``tile_b``,
+        ``direction``, ``coordinates``, and ``match_description``.
     """
     if isinstance(board_json, str):
         board_json = json.loads(board_json)
@@ -32,7 +40,11 @@ def solve_board(board_json: dict | str) -> dict:
     # 直接从 tiles 二维数组推导行列数，不依赖 JSON 中的 rows/cols 字段（可能不准确）
     tiles: list[list[str]] = [[str(t).lower().strip() for t in row] for row in board_json["tiles"]]
     rows = len(tiles)
-    cols = len(tiles[0]) if tiles else 0
+    # VLM 可能返回不等长的行，取最大列数并用 "empty" 填充短行
+    cols = max((len(row) for row in tiles), default=0)
+    for row in tiles:
+        if len(row) < cols:
+            row.extend(["empty"] * (cols - len(row)))
     board_left: float = float(board_json.get("board_left", 0))
     board_top: float = float(board_json.get("board_top", 0))
     board_right: float = float(board_json.get("board_right", 1000))
@@ -42,7 +54,9 @@ def solve_board(board_json: dict | str) -> dict:
     cell_w = (board_right - board_left) / cols
     cell_h = (board_bottom - board_top) / rows
 
-    # ── 贪心扫描：从上到下、从左到右，遇到第一个有效交换立即返回 ──────
+    # ── 收集所有有效交换候选 ──────────────────────────────────────────
+    candidates: list[tuple[int, int, int, int, str, str, str]] = []
+
     for r in range(rows):
         for c in range(cols):
             tile_a = _tile(tiles, r, c)
@@ -54,22 +68,39 @@ def solve_board(board_json: dict | str) -> dict:
                 tile_b = _tile(tiles, r, c + 1)
                 if tile_b is not None and tile_a != tile_b:
                     if _would_match(tiles, r, c, r, c + 1, rows, cols):
-                        return _result(
-                            True, r, c, r, c + 1, tile_a, tile_b,
-                            "horizontal", board_left, board_top, cell_w, cell_h,
-                        )
+                        candidates.append((r, c, r, c + 1, tile_a, tile_b, "horizontal"))
 
             # Check bottom neighbor
             if r + 1 < rows:
                 tile_b = _tile(tiles, r + 1, c)
                 if tile_b is not None and tile_a != tile_b:
                     if _would_match(tiles, r, c, r + 1, c, rows, cols):
-                        return _result(
-                            True, r, c, r + 1, c, tile_a, tile_b,
-                            "vertical", board_left, board_top, cell_w, cell_h,
-                        )
+                        candidates.append((r, c, r + 1, c, tile_a, tile_b, "vertical"))
 
-    return {"found": False, "reason": "No valid 3-match swap found on the current board"}
+    if not candidates:
+        return {"found": False, "reason": "No valid 3-match swap found on the current board"}
+
+    # ── 方形块降权：疑似误识别的方块排在最后 ──────────────────────────
+    def _deprioritize(tile_name: str) -> bool:
+        """Check if a tile name suggests a misrecognized blocked/empty cell."""
+        return any(kw in tile_name for kw in _DEPRIORITIZE_KEYWORDS)
+
+    def _sort_key(cand: tuple) -> int:
+        _r1, _c1, _r2, _c2, tile_a, tile_b, _dir = cand
+        return 1 if (_deprioritize(tile_a) or _deprioritize(tile_b)) else 0
+
+    candidates.sort(key=_sort_key)
+
+    # ── 从最高优先级候选中随机选择一个 ──────────────────────────────
+    best_priority = _sort_key(candidates[0])
+    top_candidates = [c for c in candidates if _sort_key(c) == best_priority]
+    chosen = random.choice(top_candidates)
+    r1, c1, r2, c2, tile_a, tile_b, direction = chosen
+
+    return _result(
+        True, r1, c1, r2, c2, tile_a, tile_b,
+        direction, board_left, board_top, cell_w, cell_h,
+    )
 
 
 def _tile(tiles: list[list[str]], r: int, c: int) -> str | None:
