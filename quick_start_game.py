@@ -10,8 +10,8 @@ import logging
 import re
 import time
 
-from openai import AsyncOpenAI
 from jinja2 import Template
+from openai import AsyncOpenAI
 
 from mobilerun.agent.utils.game_skill import solve_board
 from mobilerun.agent.utils.game_visualizer import annotate_swipe, save_game_log
