@@ -31,18 +31,19 @@ def annotate_swipe(
     x2: int,
     y2: int,
 ) -> bytes:
-    """Draw start/end markers and an arrow on the screenshot.
+    """在截图上绘制滑动起止标记和箭头，用于游戏操作可视化调试。
 
     Args:
-        screenshot_bytes: PNG or JPEG screenshot data.
-        x1, y1: Start point (absolute pixels).
-        x2, y2: End point (absolute pixels).
+        screenshot_bytes: PNG 或 JPEG 截图字节流。
+        x1, y1: 滑动起点（绝对像素坐标）。
+        x2, y2: 滑动终点（绝对像素坐标）。
 
     Returns:
-        Annotated image bytes in PNG format.
+        标注后的 PNG 图片字节流。
     """
     img = Image.open(BytesIO(screenshot_bytes)).convert("RGBA")
 
+    # 叠加层：半透明圆形标记 + 箭头线
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 

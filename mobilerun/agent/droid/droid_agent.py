@@ -213,7 +213,7 @@ class MobileAgent(Workflow):
         )
         if (
             self.config.agent.vision_only
-            or self.config.agent.game_mode
+            or self.config.agent.game_mode  # game_mode 强制使用截图视觉模式，禁用无障碍树
             or control_backend == VISUAL_REMOTE_CONNECTION
             or getattr(state_provider, "requires_coordinate_tools", False)
         ):
@@ -278,6 +278,7 @@ class MobileAgent(Workflow):
                 self.manager_llm = llms.get("manager")
                 self.executor_llm = llms.get("executor")
                 self.fast_agent_llm = llms.get("fast_agent")
+                # fast_game_agent 独立 LLM profile，方便游戏模式使用不同的模型（如更便宜的 VLM）
                 self.fast_game_agent_llm = llms.get("fast_game_agent", self.fast_agent_llm)
                 self.app_opener_llm = llms.get("app_opener")
                 self.structured_output_llm = llms.get(
@@ -287,7 +288,7 @@ class MobileAgent(Workflow):
                 self.manager_llm = llms
                 self.executor_llm = llms
                 self.fast_agent_llm = llms
-                self.fast_game_agent_llm = llms
+                self.fast_game_agent_llm = llms  # 单一 LLM 实例同时服务 fast_agent 和 game 模式
                 self.app_opener_llm = llms
                 self.structured_output_llm = llms
         else:
@@ -667,6 +668,7 @@ class MobileAgent(Workflow):
         logger.debug(f"🔧 Executing task: {ev.instruction}")
 
         try:
+            # game_mode 时使用 fast_game_agent 的 LLM profile，可独立配置模型
             agent_llm = (
                 self.fast_game_agent_llm
                 if self.config.agent.game_mode
@@ -685,7 +687,7 @@ class MobileAgent(Workflow):
                 prompt_resolver=self.prompt_resolver,
                 timeout=self.timeout,
                 tracing_config=self.config.tracing,
-                game_mode=self.config.agent.game_mode,
+                game_mode=self.config.agent.game_mode,  # 传递 game_mode 标志，影响提示词选择和视觉配置
             )
 
             handler = agent.run(

@@ -9,7 +9,7 @@ import asyncio
 import copy
 import logging
 import os
-import re
+import re  # 游戏模式中用于解析 swipe 操作的绝对坐标
 from typing import TYPE_CHECKING, Optional, Type
 
 from llama_index.core.base.llms.types import ChatMessage, ImageBlock, TextBlock
@@ -41,6 +41,7 @@ from mobilerun.agent.fast_agent.xml_parser import (
 )
 from mobilerun.agent.usage import get_usage_from_response
 from mobilerun.agent.utils.chat_utils import limit_history
+# game_visualizer: 游戏模式下在截图上标注 swipe 箭头并保存调试日志
 from mobilerun.agent.utils.game_visualizer import annotate_swipe, save_game_log
 from mobilerun.agent.utils.inference import acall_with_retries
 from mobilerun.agent.utils.prompt_resolver import PromptResolver
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("mobilerun")
 
+# 从 swipe 动作的 summary 中提取绝对像素坐标，用于在截图上标注
 _SWIPE_SUMMARY_RE = re.compile(
     r"Swiped from \((\d+),\s*(\d+)\) to \((\d+),\s*(\d+)\)"
 )
@@ -83,7 +85,7 @@ class FastAgent(Workflow):
         output_model: Type[BaseModel] | None = None,
         prompt_resolver: Optional[PromptResolver] = None,
         tracing_config: TracingConfig | None = None,
-        game_mode: bool = False,
+        game_mode: bool = False,  # 游戏模式：使用快棋专用提示词、强制视觉模式、启用 swipe 可视化
         *args,
         **kwargs,
     ):
@@ -93,8 +95,10 @@ class FastAgent(Workflow):
         self.llm = llm
         self.agent_config = agent_config
         self.game_mode = game_mode
+        # game_mode 使用独立配置 fast_game_agent，包含专用提示词路径和日志路径
         self.config = agent_config.fast_game_agent if game_mode else agent_config.fast_agent
         self.max_steps = agent_config.max_steps
+        # game_mode 强制开启截图视觉，因为消消乐不需要无障碍树
         self.vision = agent_config.fast_agent.vision or game_mode
         self.debug = debug
         self.registry = registry
@@ -135,6 +139,7 @@ class FastAgent(Workflow):
                 self.shared_state.custom_variables if self.shared_state else {}
             ),
             "output_schema": self._output_schema,
+            # FastGameAgentConfig 无 parallel_tools 字段，默认 True 允许并行工具调用
             "parallel_tools": getattr(self.config, "parallel_tools", True),
             "vision": self.vision,
             "platform": self.shared_state.platform,
@@ -143,6 +148,7 @@ class FastAgent(Workflow):
             ),
         }
 
+        # game_mode 使用专用系统提示词（含消消乐规则和坐标计算）
         if self.game_mode:
             system_text = await PromptLoader.load_prompt(
                 self.agent_config.get_fast_game_agent_system_prompt_path(),
@@ -171,6 +177,7 @@ class FastAgent(Workflow):
             ),
         }
 
+        # game_mode 使用专用用户提示词（引导 VLM 分析棋盘和贪心扫描）
         if self.game_mode:
             user_text = await PromptLoader.load_prompt(
                 self.agent_config.get_fast_game_agent_user_prompt_path(),
@@ -345,6 +352,7 @@ class FastAgent(Workflow):
             if self.vision and screenshot:
                 if getattr(self.state_provider, "requires_coordinate_tools", False):
                     use_norm = getattr(self.state_provider, "use_normalized", False)
+                    # use_normalized=True 时网格标签显示 [0-1000] 而非像素坐标
                     screenshot = resize_image_to_max_side_with_grid(
                         screenshot, use_normalized=use_norm
                     )
@@ -494,7 +502,7 @@ class FastAgent(Workflow):
                 )
             )
 
-            # Game mode: visualize swipe actions
+            # Game mode: 每次成功执行 swipe 后在截图上标注箭头并保存到 game_logs/
             if (
                 self.game_mode
                 and call.name == "swipe"
@@ -611,7 +619,7 @@ async def _visualize_swipe(
     thought: str,
     logs_dir: str,
 ) -> None:
-    """Annotate screenshot with swipe markers and save game log."""
+    """Game mode helper: 从 action_result 中解析 swipe 绝对坐标，在截图上标注并保存游戏日志。"""
     try:
         screenshot = await ctx.store.get("screenshot")
         if not screenshot:

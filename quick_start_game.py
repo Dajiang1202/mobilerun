@@ -49,6 +49,7 @@ async def main():
     # ── 1. 加载配置 & 连接设备 ─────────────────────────────────────
     config = ConfigLoader.load()
     serial = config.device.serial
+    # 从配置中读取 fast_game_agent 的 LLM profile，构建 AsyncOpenAI 客户端
     profile = config.llm_profiles["fast_game_agent"]
     llm_kwargs = profile.to_load_llm_kwargs()
     api_key = llm_kwargs.pop("api_key")
@@ -82,6 +83,7 @@ async def main():
         model_w, model_h = image_dimensions(model_img)
         print(f"   原始: {native_w}x{native_h}  送入模型: {model_w}x{model_h}")
 
+        # OpenAI Vision API 多模态消息：base64 内嵌图片
         data_url = _img_to_data_url(model_img)
         messages = [
             {"role": "system", "content": system_text},
@@ -96,6 +98,7 @@ async def main():
 
         print("🚀 调用 VLM 识别棋盘...")
         t0 = time.time()
+        # 直接使用 AsyncOpenAI 客户端调用 VLM，非流式
         response = await client.chat.completions.create(
             model=model, messages=messages, timeout=120,
         )
