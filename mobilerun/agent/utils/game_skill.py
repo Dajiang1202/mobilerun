@@ -26,6 +26,7 @@ def solve_board(board_json: dict | str) -> dict:
     if isinstance(board_json, str):
         board_json = json.loads(board_json)
 
+    # 直接从 tiles 二维数组推导行列数，不依赖 JSON 中的 rows/cols 字段（可能不准确）
     tiles: list[list[str]] = [[str(t).lower().strip() for t in row] for row in board_json["tiles"]]
     rows = len(tiles)
     cols = len(tiles[0]) if tiles else 0
@@ -34,10 +35,11 @@ def solve_board(board_json: dict | str) -> dict:
     board_right: float = float(board_json.get("board_right", 1000))
     board_bottom: float = float(board_json.get("board_bottom", 1000))
 
+    # 每个格子的归一化尺寸 = 边界范围 / 行列数
     cell_w = (board_right - board_left) / cols
     cell_h = (board_bottom - board_top) / rows
 
-    # ── Greedy scan ──────────────────────────────────────────────────
+    # ── 贪心扫描：从上到下、从左到右，遇到第一个有效交换立即返回 ──────
     for r in range(rows):
         for c in range(cols):
             tile_a = _tile(tiles, r, c)
@@ -80,8 +82,8 @@ def _would_match(
     r2: int, c2: int,
     rows: int, cols: int,
 ) -> bool:
-    """Check if swapping (r1,c1) and (r2,c2) creates a 3-match."""
-    # Simulate swap
+    """检查交换 (r1,c1) 和 (r2,c2) 后是否产生至少一个 3-连消除。"""
+    # 浅拷贝棋盘模拟交换，避免修改原始数据
     swapped = [list(row) for row in tiles]
     swapped[r1][c1], swapped[r2][c2] = swapped[r2][c2], swapped[r1][c1]
 
@@ -132,6 +134,7 @@ def _result(
         return {"found": False}
 
     def center(row: int, col: int) -> list[int]:
+        # 计算格子中心点：边界偏移 + (col+0.5)*格宽 (归一化坐标)
         x = round(board_left + (col + 0.5) * cell_w)
         y = round(board_top + (row + 0.5) * cell_h)
         return [x, y]

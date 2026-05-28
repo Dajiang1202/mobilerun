@@ -58,6 +58,7 @@ def resize_image_to_max_side_with_grid(
     image: bytes,
     max_side: int = MODEL_SCREENSHOT_MAX_SIDE,
     divisions: int = 10,
+    # use_normalized: True 时网格标签显示 [0-1000] 归一化坐标而非实际像素
     use_normalized: bool = False,
 ) -> bytes:
     """Resize image and overlay a coordinate grid.
@@ -76,6 +77,7 @@ def resize_image_to_max_side_with_grid(
                 Image.Resampling.LANCZOS,
             )
 
+        # 传递 use_normalized 参数以控制网格标签格式（像素 vs [0-1000]）
         _draw_coordinate_grid(
             screenshot, divisions=divisions, use_normalized=use_normalized
         )
@@ -85,7 +87,7 @@ def resize_image_to_max_side_with_grid(
 
 
 def _draw_coordinate_grid(
-    image: Image.Image, divisions: int, use_normalized: bool = False
+    image: Image.Image, divisions: int, use_normalized: bool = False  # 归一化坐标模式
 ) -> None:
     width, height = image.size
     if divisions <= 0 or width <= 0 or height <= 0:
@@ -101,7 +103,7 @@ def _draw_coordinate_grid(
     label_shadow = (0, 0, 0, 190)
     label_bg = (0, 0, 0, 115)
 
-    max_norm = 1000
+    max_norm = 1000  # 归一化坐标系最大值
 
     for index in range(divisions + 1):
         x = round(index * (width - 1) / divisions)
@@ -112,6 +114,7 @@ def _draw_coordinate_grid(
         draw.line([(x, 0), (x, height - 1)], fill=color, width=1)
         draw.line([(0, y), (width - 1, y)], fill=color, width=1)
 
+        # 归一化模式: 标签显示 0~1000 的相对坐标（分辨率无关）
         if use_normalized:
             x_label = f"x={round(index * max_norm / divisions)}"
             y_label = f"y={round(index * max_norm / divisions)}"
