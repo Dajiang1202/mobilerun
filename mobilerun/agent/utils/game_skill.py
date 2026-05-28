@@ -9,6 +9,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+# 不可交换/不可消除的特殊块类型
+_NON_SWAPPABLE = {"empty", "blocked"}
+
 
 def solve_board(board_json: dict | str) -> dict:
     """Find a valid 3-match swap on the given board.
@@ -72,7 +75,9 @@ def solve_board(board_json: dict | str) -> dict:
 def _tile(tiles: list[list[str]], r: int, c: int) -> str | None:
     if 0 <= r < len(tiles) and 0 <= c < len(tiles[r]):
         val = tiles[r][c].strip()
-        return val if val else None
+        if not val or val in _NON_SWAPPABLE:
+            return None
+        return val
     return None
 
 
@@ -103,7 +108,7 @@ def _count_run(
 ) -> int:
     """Count consecutive same-type tiles in a line through (r,c)."""
     tile = tiles[r][c]
-    if not tile:
+    if not tile or tile in _NON_SWAPPABLE:
         return 0
     count = 1
     # positive direction
