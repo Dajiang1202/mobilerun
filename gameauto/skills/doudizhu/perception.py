@@ -1,8 +1,16 @@
-"""DouDiZhu perception — VLM-based screen recognition.
+"""斗地主感知 — VLM 屏幕识别。
 
-Recognizes two game phases:
-  - bidding (叫地主/抢地主/不叫/不加倍): buttons + hand cards
-  - playing (出牌/不出/提示): buttons + hand cards
+每轮发送截图到 VLM，识别:
+  - phase: 当前阶段 (bidding 叫牌 / playing 出牌)
+  - buttons: 所有按钮 (text + active 状态 + 坐标)
+  - hand_cards: 手牌位置 (x,y 坐标，不识别花色/点数)
+
+VLM 输出格式:
+  {"phase": "playing", "buttons": [...], "hand_cards": [...]}
+
+关键设计:
+  - active 字段替代颜色识别 (true=亮色可用, false=灰色不可用)
+  - 不识别花色点数 (M1 策略不需要，后续增强再加)
 """
 
 from __future__ import annotations
@@ -17,17 +25,15 @@ from gameauto.core.perception.vlm_client import VlmClient
 
 logger = logging.getLogger("gameauto.doudizhu.perception")
 
+# 从 VLM 文本中提取最外层 JSON
 JSON_RE = re.compile(r"\{[\s\S]*\}")
 
 
 class DouDiZhuPerception:
-    """VLM-based screen recognition for Dou Di Zhu.
+    """基于 VLM 的斗地主屏幕识别。
 
-    Usage:
-        vlm = VlmClient(model="qwen3-vl-flash", ...)
-        perception = DouDiZhuPerception.from_prompt_file(vlm, "prompts/doudizhu.jinja2")
-        result = await perception.recognize(screenshot)
-        # result.parsed = {"phase": "bidding", "buttons": [...], "hand_cards": [...]}
+    使用 jinja2 提示词，告诉 VLM 输出结构化 JSON。
+    不依赖任何 CV 方法，纯 VLM 方案。
     """
 
     def __init__(self, vlm: VlmClient, prompt_template: str) -> None:
@@ -40,7 +46,7 @@ class DouDiZhuPerception:
         return cls(vlm, text)
 
     async def recognize(self, image: bytes) -> PerceptionResult:
-        """Send screenshot to VLM, parse the game state JSON."""
+        """发送截图 → VLM → 解析 JSON。"""
         raw = await self._vlm.chat(
             system_prompt=self._prompt,
             user_prompt="Output the game state as JSON.",
@@ -62,6 +68,7 @@ class DouDiZhuPerception:
 
     @staticmethod
     def _extract_json(text: str) -> str | None:
+        """从 VLM 原始返回中提取 JSON。处理 markdown 代码块包裹。"""
         text = text.strip()
         if text.startswith("```"):
             end = text.rfind("```")
