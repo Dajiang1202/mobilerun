@@ -17,14 +17,12 @@ logger = logging.getLogger("gameauto.capture.hdc")
 class HdcCapture(BaseCapture):
     """Screen capture for HarmonyOS devices via HDC subprocess.
 
-    Supports two backends:
-    - ``snapshot``: hdc shell snapshot_display → JPEG (fast, single command)
-    - ``screenCap``: uitest capture + file recv → PNG (reliable, two commands)
+    Uses a persistent HDC shell session to avoid per-screenshot subprocess
+    startup overhead (~100ms saved per frame).
 
-    Args:
-        serial: Device identifier for ``hdc -t <serial>``.
-        hdc_path: Path to hdc binary (default "hdc").
-        screenshot_method: "auto", "snapshot", or "screenCap".
+    Supports two backends:
+    - ``snapshot``: hdc shell snapshot_display → base64 JPEG (fast, persistent session)
+    - ``screenCap``: uitest capture + file recv → PNG (fallback, one-shot)
     """
 
     def __init__(
@@ -40,6 +38,7 @@ class HdcCapture(BaseCapture):
         self._resolved_hdc: str | None = None
         self._native_w: int = 0
         self._native_h: int = 0
+        self._shell_proc: asyncio.subprocess.Process | None = None  # persistent shell
 
     # ── Connection ──────────────────────────────────────────────────
 
@@ -67,6 +66,9 @@ class HdcCapture(BaseCapture):
 
         self._connected = True
 
+        # Start persistent shell session (reuse for all screenshots)
+        await self._start_shell()
+
         # Get resolution from first screenshot
         first = await self.screenshot()
         from gameauto.utils.images import image_dimensions
@@ -79,6 +81,17 @@ class HdcCapture(BaseCapture):
 
     async def disconnect(self) -> None:
         self._connected = False
+        if self._shell_proc:
+            try:
+                self._shell_proc.stdin.write_eof()
+            except Exception:
+                pass
+            try:
+                self._shell_proc.kill()
+                await self._shell_proc.wait()
+            except Exception:
+                pass
+            self._shell_proc = None
         self._resolved_hdc = None
 
     @property
@@ -102,6 +115,57 @@ class HdcCapture(BaseCapture):
         return await self._screenshot_via_screencap()
 
     async def _screenshot_via_snapshot_display(self) -> bytes:
+        """Capture via persistent shell: snapshot → base64 cat → decode.
+
+        Avoids a second subprocess for file recv (~300ms saved).
+        """
+        if self._shell_proc and self._shell_proc.returncode is None:
+            try:
+                return await self._snapshot_persistent()
+            except Exception:
+                logger.debug("Persistent shell failed, restarting...")
+                await self._restart_shell()
+
+        # Fallback: traditional two-command approach
+        return await self._snapshot_fallback()
+
+    async def _snapshot_persistent(self) -> bytes:
+        """Single shell session: snapshot → base64 pipe → decode."""
+        shell = self._shell_proc
+
+        # 1. Take snapshot
+        shell.stdin.write(b"snapshot_display\n")
+        await shell.stdin.drain()
+
+        # 2. Read output to find file path
+        line = await asyncio.wait_for(shell.stdout.readline(), timeout=15.0)
+        output = line.decode(errors="replace")
+        match = re.search(r"write to ([^\s]+)", output)
+        if not match:
+            raise RuntimeError(f"Could not parse snapshot path from: {output}")
+        remote_path = match.group(1).strip()
+
+        # 3. Base64 read the file inline
+        cmd = f"cat {remote_path} | base64 && echo '---GAMEAUTO_END---' && rm -f {remote_path}\n"
+        shell.stdin.write(cmd.encode())
+        await shell.stdin.drain()
+
+        # 4. Read base64 data until end marker
+        b64_lines = []
+        while True:
+            line = await asyncio.wait_for(shell.stdout.readline(), timeout=15.0)
+            decoded = line.decode(errors="replace").strip()
+            if decoded == "---GAMEAUTO_END---":
+                break
+            b64_lines.append(decoded)
+
+        # 5. Decode
+        import base64
+        b64_str = "".join(b64_lines)
+        return base64.b64decode(b64_str)
+
+    async def _snapshot_fallback(self) -> bytes:
+        """Traditional: snapshot → file recv (two subprocess calls)."""
         rc, stdout, stderr = await self._hdc("shell", "snapshot_display")
         if rc != 0:
             raise RuntimeError(f"snapshot_display failed: {stderr.decode(errors='replace')}")
@@ -125,6 +189,34 @@ class HdcCapture(BaseCapture):
                 await self._hdc("shell", "rm", "-f", remote_path)
             except Exception:
                 pass
+
+    # ── Persistent shell management ──────────────────────────────────
+
+    async def _start_shell(self) -> None:
+        """Start a persistent hdc shell session."""
+        assert self._resolved_hdc
+        cmd = [self._resolved_hdc]
+        if self._serial:
+            cmd.extend(("-t", self._serial))
+        cmd.append("shell")
+
+        self._shell_proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        logger.debug("Persistent HDC shell started")
+
+    async def _restart_shell(self) -> None:
+        """Kill and restart the persistent shell."""
+        if self._shell_proc:
+            try:
+                self._shell_proc.kill()
+                await self._shell_proc.wait()
+            except Exception:
+                pass
+        await self._start_shell()
 
     async def _screenshot_via_screencap(self) -> bytes:
         remote_path = "/data/local/tmp/gameauto_screenshot.png"
