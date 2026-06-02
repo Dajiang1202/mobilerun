@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import traceback
 
 from gameauto.core.capture.base import BaseCapture
 from gameauto.core.input.base import BaseInput
@@ -89,8 +90,8 @@ class GameLoop:
                 try:
                     await self._execute_action(action)
                     self._ctx.success_count += 1
-                except Exception as e:
-                    logger.error("Action %d failed: %s", step_idx + 1, e)
+                except Exception:
+                    logger.error("Action %d failed:\n%s", step_idx + 1, traceback.format_exc())
                     continue
 
                 # 多步操作之间等待动画（不等待最后一步，外层有统一间隔）

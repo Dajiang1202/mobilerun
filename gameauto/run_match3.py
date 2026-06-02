@@ -93,7 +93,7 @@ async def main():
 
     # ── Step 2: Setup logging & session ───────────────────────────────
     # SessionManager 创建 logs/<timestamp>/ 目录结构
-    session = SessionManager()
+    session = SessionManager(base_dir=Path(__file__).parent / "logs")
     session_dir = session.setup({
         "game": "match3",
         "max_steps_per_round": max_steps,
@@ -168,7 +168,7 @@ async def main():
         recorder.record_summary({
             "total_rounds": context.round_num,
             "success_count": context.success_count,
-            "final_state": context.state.value,
+            "final_state": str(context.state),
         })
         await capture.disconnect()
 
