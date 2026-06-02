@@ -27,6 +27,13 @@ LABEL_COLOR = (255, 255, 255)  # white text
 CIRCLE_RADIUS = 18
 ARROW_WIDTH = 4
 
+# Multi-swipe color schemes: (start_rgb, end_rgb, arrow_rgb) for up to 3 steps
+_MULTI_COLORS = [
+    (START_COLOR, END_COLOR, ARROW_COLOR),                          # step 1: red/green/amber
+    ((59, 130, 246), (168, 85, 247), (6, 182, 212)),                # step 2: blue/purple/cyan
+    ((251, 146, 60), (52, 211, 153), (250, 204, 21)),              # step 3: orange/emerald/yellow
+]
+
 
 def annotate_board(
     screenshot_bytes: bytes,
@@ -145,6 +152,59 @@ def annotate_swipe(
     font = _load_label_font()
     draw.text((x1 + r + 6, y1 - r - 8), f"S({x1},{y1})", fill=START_COLOR, font=font)
     draw.text((x2 + r + 6, y2 - r - 8), f"E({x2},{y2})", fill=END_COLOR, font=font)
+
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def annotate_multi_swipe(
+    screenshot_bytes: bytes,
+    swipes: list,
+) -> bytes:
+    """Draw multiple swipe annotations on the same screenshot with distinct colors.
+
+    Args:
+        screenshot_bytes: PNG or JPEG bytes.
+        swipes: List of (x1, y1, x2, y2) tuples, one per swipe.
+                Each represents start/end in native pixel coordinates.
+
+    Returns:
+        Annotated PNG bytes with all swipes drawn.
+    """
+    img = Image.open(BytesIO(screenshot_bytes)).convert("RGBA")
+
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    r = CIRCLE_RADIUS
+
+    for idx, (x1, y1, x2, y2) in enumerate(swipes):
+        start_c, end_c, arrow_c = _MULTI_COLORS[idx % len(_MULTI_COLORS)]
+
+        # Start and end markers
+        draw.ellipse((x1 - r, y1 - r, x1 + r, y1 + r), fill=(*start_c, 80), outline=start_c, width=3)
+        draw.ellipse((x2 - r, y2 - r, x2 + r, y2 + r), fill=(*end_c, 80), outline=end_c, width=3)
+
+        # Arrow line
+        draw.line((x1, y1, x2, y2), fill=(*arrow_c, 200), width=ARROW_WIDTH)
+
+        # Arrowhead at end point
+        _draw_arrowhead(draw, x1, y1, x2, y2, size=14, color=arrow_c)
+
+        # Small dots at exact positions
+        draw.ellipse((x1 - 4, y1 - 4, x1 + 4, y1 + 4), fill=start_c)
+        draw.ellipse((x2 - 4, y2 - 4, x2 + 4, y2 + 4), fill=end_c)
+
+    img = Image.alpha_composite(img, overlay).convert("RGB")
+
+    # Draw step-numbered labels
+    draw = ImageDraw.Draw(img)
+    font = _load_label_font()
+    for idx, (x1, y1, x2, y2) in enumerate(swipes):
+        start_c, end_c, _arrow_c = _MULTI_COLORS[idx % len(_MULTI_COLORS)]
+        step_num = idx + 1
+        draw.text((x1 + r + 6, y1 - r - 8), f"S{step_num}({x1},{y1})", fill=start_c, font=font)
+        draw.text((x2 + r + 6, y2 - r - 8), f"E{step_num}({x2},{y2})", fill=end_c, font=font)
 
     buf = BytesIO()
     img.save(buf, format="PNG")

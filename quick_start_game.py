@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime
@@ -16,8 +17,8 @@ from pathlib import Path
 from jinja2 import Template
 from openai import AsyncOpenAI
 
-from mobilerun.agent.utils.game_skill import solve_board
-from mobilerun.agent.utils.game_visualizer import annotate_board, annotate_swipe
+from mobilerun.agent.utils.game_skill import solve_board, solve_board_multi
+from mobilerun.agent.utils.game_visualizer import annotate_board, annotate_multi_swipe, annotate_swipe
 from mobilerun.config_manager.loader import ConfigLoader
 from mobilerun.config_manager.path_resolver import PathResolver
 from mobilerun.tools.driver import create_driver
@@ -31,6 +32,9 @@ JSON_RE = re.compile(r"\{[\s\S]*\}")
 
 # 连续执行轮数
 ROUNDS = 10
+
+# 每轮最大滑动次数: 1=单步(默认), 2=双步(互不影响的独立交换)
+MAX_STEPS_PER_ROUND = int(os.environ.get("MAX_STEPS_PER_ROUND", "1"))
 
 
 def _img_to_data_url(image_bytes: bytes) -> str:
@@ -273,54 +277,81 @@ async def main():
         (round_dir / "step0_board.png").write_bytes(board_img)
         print(f"📸 棋盘可视化: {round_dir}")
 
-        # ── Python 贪心求解 ─────────────────────────────────────────
+        # ── Python 贪心求解 (multi-step) ─────────────────────────────
         t0 = time.time()
-        result = solve_board(board)
+        step_results = solve_board_multi(board, max_steps=MAX_STEPS_PER_ROUND)
         solve_time = (time.time() - t0) * 1000
-        print(f"   求解耗时: {solve_time:.0f}ms")
+        print(f"   求解耗时: {solve_time:.0f}ms  (found {len(step_results)} swap(s))")
 
         (round_dir / "step0_result.json").write_text(
-            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8",
+            json.dumps(step_results, ensure_ascii=False, indent=2), encoding="utf-8",
         )
 
-        if not result.get("found"):
-            print(f"❌ {result.get('reason', 'No match')}")
+        if not step_results:
+            print("❌ No valid swap found on the current board")
             continue
 
-        print(f"✅ {result['match_description']}")
-        coord_from = result["coordinates"]["from"]
-        coord_to = result["coordinates"]["to"]
-        print(f"   归一化坐标: {coord_from} → {coord_to}")
-
-        # ── 坐标转换 & 执行滑动 ─────────────────────────────────────
+        # ── 坐标转换准备 ────────────────────────────────────────────
         input_size = getattr(driver, "input_coordinate_size", None)
         if input_size is None:
             input_w, input_h = native_w, native_h
         else:
             input_w, input_h = await input_size(native_w, native_h)
 
-        abs_x1, abs_y1 = to_absolute(coord_from[0], coord_from[1], input_w, input_h)
-        abs_x2, abs_y2 = to_absolute(coord_to[0], coord_to[1], input_w, input_h)
-        print(f"   绝对坐标: ({abs_x1},{abs_y1}) → ({abs_x2},{abs_y2})")
+        # Collect native-pixel swipe coords for visualization
+        swipe_coords: list = []
 
-        await driver.swipe(abs_x1, abs_y1, abs_x2, abs_y2, duration_ms=1000)
-        print("✅ 滑动已执行")
-        success_count += 1
+        for step_idx, step_result in enumerate(step_results):
+            step_label = f"step{step_idx + 1}"
+            print(f"\n   --- Step {step_idx + 1}/{len(step_results)} ---")
+            print(f"   ✅ {step_result['match_description']}")
+
+            coord_from = step_result["coordinates"]["from"]
+            coord_to = step_result["coordinates"]["to"]
+            print(f"      归一化坐标: {coord_from} → {coord_to}")
+
+            abs_x1, abs_y1 = to_absolute(coord_from[0], coord_from[1], input_w, input_h)
+            abs_x2, abs_y2 = to_absolute(coord_to[0], coord_to[1], input_w, input_h)
+            print(f"      绝对坐标: ({abs_x1},{abs_y1}) → ({abs_x2},{abs_y2})")
+
+            try:
+                await driver.swipe(abs_x1, abs_y1, abs_x2, abs_y2, duration_ms=1000)
+                print(f"   ✅ 滑动 {step_idx + 1} 已执行")
+                success_count += 1
+            except Exception as e:
+                print(f"   ⚠️ 滑动 {step_idx + 1} 失败: {e}")
+                continue
+
+            # Compute native-pixel coords for visualization
+            x1 = int(coord_from[0] * native_w / 1000)
+            y1 = int(coord_from[1] * native_h / 1000)
+            x2 = int(coord_to[0] * native_w / 1000)
+            y2 = int(coord_to[1] * native_h / 1000)
+            swipe_coords.append((x1, y1, x2, y2))
+
+            # Save per-step result
+            (round_dir / f"{step_label}_result.json").write_text(
+                json.dumps(step_result, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+
+            # Wait for animation between steps (not after the last)
+            if step_idx < len(step_results) - 1:
+                await asyncio.sleep(1.0)
 
         # ── 滑动可视化 ──────────────────────────────────────────────
-        x1 = int(coord_from[0] * native_w / 1000)
-        y1 = int(coord_from[1] * native_h / 1000)
-        x2 = int(coord_to[0] * native_w / 1000)
-        y2 = int(coord_to[1] * native_h / 1000)
-        annotated = annotate_swipe(img_bytes, x1, y1, x2, y2)
+        if len(swipe_coords) == 1:
+            annotated = annotate_swipe(img_bytes, *swipe_coords[0])
+        else:
+            annotated = annotate_multi_swipe(img_bytes, swipe_coords)
         (round_dir / "step0_swipe.png").write_bytes(annotated)
-        print(f"📸 滑动可视化: {round_dir}")
+        print(f"\n📸 滑动可视化: {round_dir}")
 
         await asyncio.sleep(0.5)
 
     elapsed = time.time() - t_start
     print(f"\n{'=' * 50}")
-    print(f"🏁 完成: {success_count}/{ROUNDS} 轮成功, 总耗时 {elapsed:.1f}s")
+    max_total = ROUNDS * MAX_STEPS_PER_ROUND
+    print(f"🏁 完成: {success_count}/{max_total} swipes, 总耗时 {elapsed:.1f}s")
     print(f"{'=' * 50}")
 
 
