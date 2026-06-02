@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import traceback
 from collections.abc import Awaitable, Callable
 
 from gameauto.core.orchestration.base import Action, GameState
@@ -59,7 +60,7 @@ class StateMachine:
             handler: 异步函数(bytes, GameContext) -> list[Action]，处理此状态
         """
         self._states[state] = (detector, handler)
-        logger.debug("Registered state: %s", state.value)
+        logger.debug("Registered state: %s", state)
 
     async def step(self, image: bytes, context: GameContext) -> list[Action]:
         """执行一步状态机: 检测当前状态 → 执行对应 handler → 返回 Action 列表。
@@ -74,11 +75,10 @@ class StateMachine:
                     matched_state = state
                     break
             except Exception as e:
-                logger.warning("Detector for %s raised: %s", state.value, e)
-
+                logger.warning("Detector for %s raised: %s", state, e)
         # 2. 状态变化时记录日志
         if matched_state != context.state:
-            logger.info("State: %s → %s", context.state.value, matched_state.value)
+            logger.info("State: %s → %s", context.state, matched_state)
             context.state = matched_state
 
         # 3. 执行 handler（异步，可以做 VLM 调用等重操作）
@@ -86,9 +86,9 @@ class StateMachine:
             _detector, handler = self._states[matched_state]
             try:
                 return await handler(image, context)
-            except Exception as e:
-                logger.error("Handler for %s failed: %s", matched_state.value, e)
+            except Exception:
+                logger.error("Handler for %s failed:\n%s", matched_state, traceback.format_exc())
                 return []
 
-        logger.warning("No handler for state: %s", matched_state.value)
+        logger.warning("No handler for state: %s", matched_state)
         return []

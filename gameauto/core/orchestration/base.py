@@ -9,27 +9,27 @@ Action 是框架和执行层之间的唯一接口：
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel
 
 
-class GameState(StrEnum):
-    """框架内置的游戏状态。
+# Game states are plain strings so every skill can define its own
+# without modifying framework code. Use the constants below as conventions.
+class _GS:
+    """GameState constants — use these or define your own strings."""
+    UNKNOWN = "unknown"
+    DESKTOP = "desktop"
+    GAME_MENU = "game_menu"
+    IN_GAME = "in_game"
+    SETTLEMENT = "settlement"
+    PAUSED = "paused"
+    # Card games
+    BIDDING = "bidding"      # 叫地主/抢地主
+    PLAYING = "playing"      # 出牌阶段
 
-    每个 Skill 通过 StateMachine.register() 将状态与 detector + handler 绑定。
-    新增游戏时需要什么状态就注册什么，不用的不注册。
 
-    示例（消消乐 M1）: 只注册 IN_GAME
-    示例（金铲铲）: 注册 LOBBY, QUEUE, PLANNING, COMBAT, RESULT 等
-    """
-    UNKNOWN = "unknown"            # 无法识别当前画面
-    DESKTOP = "desktop"            # 手机桌面/启动器
-    GAME_MENU = "game_menu"        # 游戏主菜单/大厅
-    IN_GAME = "in_game"            # 游戏中，可操作
-    SETTLEMENT = "settlement"      # 结算/结果界面
-    PAUSED = "paused"              # 暂停/弹窗/广告
+GameState = _GS  # alias for convenience
 
 
 class Action(BaseModel):

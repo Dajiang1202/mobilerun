@@ -1,0 +1,5 @@
+# Match-3 Skill — Default Configuration
+# Override in ~/.gameauto/games/match3.yaml
+
+max_steps_per_round: 2
+rounds: 10
