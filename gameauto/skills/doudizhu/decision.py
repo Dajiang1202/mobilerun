@@ -1,14 +1,10 @@
 """斗地主决策引擎 — 规则驱动。
 
-M1 策略（最简基线，后续迭代增强）:
-  - 叫牌阶段: 优先选"叫地主"/"抢地主"，否则随机
-  - 出牌阶段: 根据 VLM 识别的"提示"按钮 active 状态决定:
-      - active=true  → 点击"提示" → 点击"出牌"（让系统自动选牌）
-      - active=false → 随机点一张牌 → 点击"出牌"（盲出）
-
-已知限制:
-  - 随机单张可能不合牌型（如上家出对子，你点了单张）→ 需识别牌型后改进
-  - 缺少"不出"策略 → 可通过识别"不出"按钮的 active 状态绕开
+M1 策略:
+  - 叫牌阶段: 随机点一个按钮
+  - 出牌阶段:
+      - 提示 disabled 或 桌上无牌(自己是首家) → 随机一张牌 → 出牌
+      - 提示 enabled → 点提示 → 出牌
 """
 
 from __future__ import annotations
@@ -21,19 +17,19 @@ from gameauto.core.orchestration.base import Action
 logger = logging.getLogger("gameauto.doudizhu.decision")
 
 
-def decide_bidding(buttons: list[dict]) -> list[Action]:
-    """叫牌阶段决策: 从可见按钮中随机选一个。
+# Buttons valid in bidding phase
+_BIDDING_BUTTONS = {"叫地主", "抢地主", "不叫", "不加倍"}
 
-    优先选"叫地主"/"抢地主"/"不加倍"（积极策略），
-    都没有就随机选一个。
-    """
-    if not buttons:
-        logger.warning("No buttons in bidding phase")
+
+def decide_bidding(buttons: list[dict]) -> list[Action]:
+    """叫牌阶段: 只从叫牌相关按钮中选。"""
+    bidding_btns = [b for b in buttons if b["text"] in _BIDDING_BUTTONS]
+    if not bidding_btns:
+        logger.warning("No bidding buttons found among: %s", [b.get('text') for b in buttons])
         return []
 
-    preferred = [b for b in buttons if b["text"] in ("叫地主", "抢地主", "不加倍")]
-    targets = preferred if preferred else buttons
-    chosen = random.choice(targets)
+    preferred = [b for b in bidding_btns if b["text"] in ("叫地主", "抢地主", "不加倍")]
+    chosen = random.choice(preferred or bidding_btns)
 
     logger.info("Bidding: '%s' at (%d,%d)", chosen["text"], chosen["x"], chosen["y"])
     return [Action(
@@ -42,15 +38,12 @@ def decide_bidding(buttons: list[dict]) -> list[Action]:
     )]
 
 
-def decide_playing(buttons: list[dict], hand_cards: list[dict]) -> list[Action]:
-    """出牌阶段决策: 根据"提示"按钮的 active 状态选择策略。
+def decide_playing(buttons: list[dict], hand_cards: list[dict], last_played: list[dict]) -> list[Action]:
+    """出牌阶段决策。
 
-    - 提示 active=true  (蓝色/亮色) → 系统可推荐牌型 → 点提示 → 点出牌
-    - 提示 active=false (灰色/暗色) → 系统无法推荐 → 随机点一张牌 → 点出牌
-
-    返回 Action 列表，通常 2 个（选牌/提示 + 出牌）。
-
-    TODO: 增加牌型识别 + 合法牌型构造 + "不出"选项
+    策略:
+      - 提示 enabled  → 点提示 → 出牌 (系统推荐合法牌型)
+      - 提示 disabled → 随机选 1 张牌或一对同值牌 → 出牌
     """
     if not buttons:
         logger.warning("No buttons in playing phase")
@@ -58,39 +51,69 @@ def decide_playing(buttons: list[dict], hand_cards: list[dict]) -> list[Action]:
 
     hint_btn = next((b for b in buttons if b["text"] == "提示"), None)
     play_btn = next((b for b in buttons if b["text"] == "出牌"), None)
-    hint_active = hint_btn.get("active", False) if hint_btn else False
+    hint_enabled = hint_btn.get("enabled", False) if hint_btn else False
 
     actions = []
 
-    # Step 1: 选择要出的牌（提示 or 随机）
-    if hint_active:
-        logger.info("Playing: hint ACTIVE → click 提示 then 出牌")
+    if hint_enabled:
+        # 系统可以推荐合法牌型
+        logger.info("Playing: hint ENABLED → click 提示 then 出牌")
         actions.append(Action(
             type="tap", x1=hint_btn["x"], y1=hint_btn["y"],
-            duration_ms=150, description="Click '提示' (active)",
+            duration_ms=150, description="Click '提示' (hint)",
         ))
     else:
-        logger.info("Playing: hint INACTIVE → click random card then 出牌")
-        if hand_cards:
-            card = random.choice(hand_cards)
-            logger.info("  Card at (%.0f,%.0f)", card["x"], card["y"])
+        # 盲出: 随机选 1 张 or 一对同值牌
+        cards_to_play = _pick_cards(hand_cards)
+        logger.info("Playing: hint DISABLED → %d card(s) then 出牌", len(cards_to_play))
+        for card in cards_to_play:
+            name = f"{_suit(card.get('suit',''))}{card.get('value','?')}"
             actions.append(Action(
                 type="tap", x1=card["x"], y1=card["y"],
-                duration_ms=80, description="Click random card",
+                duration_ms=100, description=f"Click {name}",
             ))
 
-    # Step 2: 点击出牌
+    # 出牌
     if play_btn:
         actions.append(Action(
             type="tap", x1=play_btn["x"], y1=play_btn["y"],
             duration_ms=150, description="Click '出牌' (play)",
         ))
-    elif actions:
-        # 没有"出牌"按钮时的兜底
-        first = buttons[0]
-        actions.append(Action(
-            type="tap", x1=first["x"], y1=first["y"],
-            duration_ms=100, description=f"Fallback '{first['text']}'",
-        ))
 
     return actions
+
+
+def _pick_cards(hand_cards: list[dict]) -> list[dict]:
+    """Pick cards to play: either 1 random card, or a random pair of same value."""
+    if not hand_cards:
+        return []
+
+    # 50% chance: try to play a pair
+    if len(hand_cards) >= 2 and random.random() < 0.5:
+        pairs = _find_pairs(hand_cards)
+        if pairs:
+            chosen = random.choice(pairs)
+            logger.info("  Playing pair: %s", [_card_str(c) for c in chosen])
+            return chosen
+
+    # Fallback: single card
+    card = random.choice(hand_cards)
+    logger.info("  Playing single: %s", _card_str(card))
+    return [card]
+
+
+def _find_pairs(hand_cards: list[dict]) -> list[list[dict]]:
+    """Find all pairs of cards with the same value. Returns list of [card_a, card_b]."""
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for c in hand_cards:
+        groups[c.get("value", "?")].append(c)
+    return [cards for cards in groups.values() if len(cards) >= 2]
+
+
+def _card_str(card: dict) -> str:
+    return f"{_suit(card.get('suit',''))}{card.get('value','?')}"
+
+
+def _suit(suit: str) -> str:
+    return {"hearts": "H", "spades": "S", "diamonds": "D", "clubs": "C"}.get(suit or "", "?")
