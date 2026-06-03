@@ -59,20 +59,33 @@ def annotate_game_state(screenshot_bytes: bytes, game_state: dict) -> bytes:
         x1, y1 = x + pw, y + BUTTON_BOX_PADDING
         draw.rectangle((x0, y0, x1, y1), fill=BUTTON_FILL, outline=BUTTON_COLOR, width=3)
         label = btn.get("text", "?")
-        _draw_centered(draw, label, x, y - BUTTON_BOX_PADDING - 12, font, BUTTON_COLOR[:3])
-        # Also show color hint for "提示" button
+        enabled = btn.get("enabled", True)
+        # Disabled buttons: dimmer outline
+        bcolor = BUTTON_COLOR if enabled else (128, 128, 128, 150)
+        bfill = BUTTON_FILL if enabled else (128, 128, 128, 30)
+        draw.rectangle((x0, y0, x1, y1), fill=bfill, outline=bcolor, width=3)
+        _draw_centered(draw, label, x, y - BUTTON_BOX_PADDING - 12, font, bcolor[:3])
+        # Show enabled/disabled for "提示"
         if btn.get("text") == "提示":
-            clr_text = btn.get("color", "?")
-            _draw_centered(draw, f"({clr_text})", x, y - BUTTON_BOX_PADDING - 38, small_font, BUTTON_COLOR[:3])
+            status = "ON" if enabled else "OFF"
+            _draw_centered(draw, status, x, y - BUTTON_BOX_PADDING - 38, small_font,
+                           (34, 197, 94) if enabled else (200, 60, 60))
 
-    # ── Hand cards: blue dot + index number ────────────────────────────
+    # ── Hand cards: blue dot + suit+value ─────────────────────────────
     cards = game_state.get("hand_cards", [])
-    for i, card in enumerate(cards):
+    for card in cards:
         x = int(card["x"] * native_w / 1000)
         y = int(card["y"] * native_h / 1000)
         r = 14
         draw.ellipse((x - r, y - r, x + r, y + r), fill=CARD_FILL, outline=CARD_COLOR, width=2)
-        _draw_centered(draw, str(i + 1), x, y - 22, small_font, CARD_COLOR[:3])
+        label = f"{_suit(card.get('suit',''))}{card.get('value','?')}"
+        _draw_centered(draw, label, x, y - 22, small_font, CARD_COLOR[:3])
+
+    # ── Last played cards (on table) ──────────────────────────────────
+    last_played = game_state.get("last_played", [])
+    if last_played:
+        draw.text((10, 60), f"Last played: {' '.join(_suit(c.get('suit',''))+c.get('value','?') for c in last_played)}",
+                  fill=(255, 200, 50), font=small_font)
 
     img = Image.alpha_composite(img, overlay).convert("RGB")
 
@@ -139,3 +152,7 @@ def _draw_centered(draw, text, x, y, font, color):
     cy = y - th // 2
     draw.text((cx + 1, cy + 1), text, fill=(0, 0, 0), font=font)
     draw.text((cx, cy), text, fill=color, font=font)
+
+
+def _suit(suit: str) -> str:
+    return {"hearts": "H", "spades": "S", "diamonds": "D", "clubs": "C"}.get(suit or "", "?")

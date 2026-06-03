@@ -25,6 +25,20 @@ logger = logging.getLogger("gameauto.doudizhu")
 BIDDING = GameState.BIDDING   # "bidding" — 叫地主/抢地主/不加倍
 PLAYING = GameState.PLAYING   # "playing" — 出牌阶段
 
+# Buttons that ONLY appear in playing phase (never in bidding)
+_PLAYING_ONLY_BUTTONS = {"出牌", "提示"}
+
+
+def _correct_phase(state: dict, vlm_phase: str) -> str:
+    """Fix VLM phase misidentification by checking actual button names."""
+    buttons = state.get("buttons", [])
+    button_texts = {b.get("text", "") for b in buttons}
+    if button_texts & _PLAYING_ONLY_BUTTONS:
+        if vlm_phase == "bidding":
+            logger.warning("VLM said bidding but playing buttons found — forcing playing")
+        return "playing"
+    return vlm_phase
+
 
 class DouDiZhuStateRegistrar:
     """向状态机注册斗地主的两个游戏状态。
@@ -77,8 +91,9 @@ class DouDiZhuStateRegistrar:
     async def _handle_bidding(self, image: bytes, context: GameContext) -> list[Action]:
         """叫地主阶段: VLM 识别 → 随机选按钮。"""
         state, phase = await self._perceive_and_route(image)
+        phase = _correct_phase(state, phase)  # fix VLM misidentification
         if phase != "bidding":
-            return []  # 不是叫牌阶段就跳过
+            return []
 
         round_dir = self._round_dir(context)
         self._save_debug(round_dir, image, state)
@@ -89,8 +104,8 @@ class DouDiZhuStateRegistrar:
     async def _handle_playing(self, image: bytes, context: GameContext) -> list[Action]:
         """出牌阶段: VLM 识别 → 提示 → 出牌。"""
         state, phase = await self._perceive_and_route(image)
+        phase = _correct_phase(state, phase)  # fix VLM misidentification
         if phase == "bidding":
-            # 重新路由到 bidding
             round_dir = self._round_dir(context)
             self._save_debug(round_dir, image, state)
             actions = decide_bidding(state.get("buttons", []))
@@ -99,7 +114,11 @@ class DouDiZhuStateRegistrar:
 
         round_dir = self._round_dir(context)
         self._save_debug(round_dir, image, state)
-        actions = decide_playing(state.get("buttons", []), state.get("hand_cards", []))
+        actions = decide_playing(
+            state.get("buttons", []),
+            state.get("hand_cards", []),
+            state.get("last_played", []),
+        )
         self._save_clicks(round_dir, image, state, actions)
         return actions
 

@@ -112,7 +112,8 @@ async def _test_doudizhu(vlm: VlmClient, screenshot: bytes, out_dir: Path):
     if phase == "bidding":
         actions = decide_bidding(buttons)
     else:
-        actions = decide_playing(buttons, cards)
+        last_played = state.get("last_played", [])
+        actions = decide_playing(buttons, cards, last_played)
 
     (out_dir / "decision.json").write_text(json.dumps({
         "phase": phase,

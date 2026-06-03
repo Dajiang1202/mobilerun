@@ -1,4 +1,4 @@
 # DouDiZhu (斗地主) Skill — Default Configuration
 # Override in ~/.gameauto/games/doudizhu.yaml
 
-rounds: 1
+rounds: 20
