@@ -27,6 +27,8 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from gameauto.config.loader import load_game_config, load_global_config
 from gameauto.core.capture.hdc import HdcCapture
 from gameauto.core.input.hdc import HdcInput
