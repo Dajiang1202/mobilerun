@@ -14,13 +14,13 @@ Identify:
 {
   "phase": "playing",
   "buttons": [
-    {"text": "出牌", "enabled": true, "x": 380, "y": 870},
-    {"text": "不出", "enabled": true, "x": 540, "y": 870},
-    {"text": "提示", "enabled": false, "x": 700, "y": 870}
+    {"text": "出牌", "enabled": true, "x": 400, "y": 550},
+    {"text": "不出", "enabled": true, "x": 560, "y": 550},
+    {"text": "提示", "enabled": false, "x": 720, "y": 550}
   ],
   "hand_cards": [
-    {"suit": "spades", "value": "A", "x": 110, "y": 940},
-    {"suit": "hearts", "value": "K", "x": 165, "y": 940},
+    {"suit": "spades", "value": "A", "x": 100, "y": 940},
+    {"suit": "hearts", "value": "K", "x": 160, "y": 940},
     {"suit": "diamonds", "value": "3", "x": 220, "y": 940}
   ],
   "last_played": [
@@ -63,6 +63,10 @@ If no one has played yet (you are the first to play), last_played is an empty ar
    - Empty array [] if no cards on table (you are first to play)
    - Same suit/value format as hand_cards, but no x,y needed
 
-5. **Coordinates**: Use the [0-1000] grid on the screenshot.
+5. **Coordinate ranges** — use these as rough guides to calibrate your x,y values:
+   - Buttons (出牌/不出/提示): y ≈ 500-600, centered horizontally on screen
+   - Hand cards: y ≈ 900-970, spread left-to-right across the screen
+   - last_played cards on table: y ≈ 350-500, centered horizontally
+   - Use the white grid lines on the screenshot to verify your coordinates.
 
 6. Output ONLY the JSON. No markdown, no explanation, no backticks.
