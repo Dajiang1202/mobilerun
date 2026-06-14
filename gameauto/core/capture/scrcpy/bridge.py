@@ -239,14 +239,23 @@ def _start_stream():
     log.info("Video stream: scale=%d @ %dfps", _scale, _max_fps)
     _device.startCaptureScreen(_cb_proxy)
 
-    if not _stream_ready.wait(timeout=20):
-        log.warning("Stream not ready after 20s")
-        return
+    if not _stream_ready.wait(timeout=30):
+        log.warning("Stream onReady not fired after 30s")
 
-    for _ in range(100):
+    # Wait for first decoded frame (SDK may retry gRPC connection internally)
+    for attempt in range(120):  # up to 60 seconds
         with _frame_lock:
-            if _latest_bgr is not None:
+            if _frame_count > 0:
                 break
-        time.sleep(0.05)
+        time.sleep(0.5)
+        if attempt == 60:
+            log.warning("Still waiting for first frame (SDK may be retrying)...")
 
-    log.info("Stream live: %d frames", _frame_count)
+    if _frame_count == 0:
+        raise RuntimeError(
+            "Video stream failed to deliver frames. "
+            "Check device connection and retry."
+        )
+
+    log.info("Stream live: %d frames, native %dx%d",
+             _frame_count, _native_w, _native_h)

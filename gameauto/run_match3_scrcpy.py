@@ -47,7 +47,10 @@ import asyncio
 import logging
 import os
 import sys
+import threading
 from pathlib import Path
+
+import cv2
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -88,8 +91,8 @@ async def main():
     # 游戏参数: skills/match3/config.yaml + ~/.gameauto/games/match3.yaml
     # 环境变量 MAX_STEPS_PER_ROUND 和 ROUNDS 优先级最高
     game_cfg = load_game_config("match3")
-    max_steps = int(os.environ.get("MAX_STEPS_PER_ROUND", game_cfg.get("max_steps_per_round", 1)))
-    rounds = int(os.environ.get("ROUNDS", game_cfg.get("rounds", 10)))
+    max_steps = 1   # QUICK TEST: single step
+    rounds = 1       # QUICK TEST: single round
 
     # ── Step 2: Setup logging & session ───────────────────────────────
     # SessionManager 创建 logs/<timestamp>/ 目录结构
@@ -107,8 +110,8 @@ async def main():
     device_cfg = global_cfg.get("device", {})
     serial = device_cfg.get("serial")
 
-    from gameauto.core.capture.hdc import HdcCapture as Capture
-    from gameauto.core.input.hdc import HdcInput as Input
+    from gameauto.core.capture.scrcpy import ScrcpyCapture as Capture
+    from gameauto.core.input.scrcpy import ScrcpyInput as Input
 
     capture = Capture(serial)
     await capture.connect()
@@ -119,6 +122,27 @@ async def main():
     input_device.set_input_resolution(capture_w, capture_h)
 
     logger.info("Device: %dx%d", capture_w, capture_h)
+
+    _stop_preview = None
+    preview_thread = None
+
+    # ── Live preview thread ──────────────────────────────────────────
+    from gameauto.core.capture.scrcpy.bridge import screenshot_bgr
+    _stop_preview = threading.Event()
+
+    def _preview_loop():
+        cv2.namedWindow("GameAuto Scrcpy", cv2.WINDOW_NORMAL)
+        ow, oh = capture_w, capture_h
+        cv2.resizeWindow("GameAuto Scrcpy", max(1, ow // 4), max(1, oh // 4))
+        while not _stop_preview.is_set():
+            frame = screenshot_bgr()
+            if frame is not None:
+                cv2.imshow("GameAuto Scrcpy", frame)
+            cv2.waitKey(1)
+        cv2.destroyAllWindows()
+
+    preview_thread = threading.Thread(target=_preview_loop, daemon=True)
+    preview_thread.start()
 
     # ── Step 4: Setup VLM and perception ──────────────────────────────
     # VlmClient: 通用 OpenAI-compatible 调用器，temperature=0.2 确保输出稳定
@@ -171,7 +195,14 @@ async def main():
             "success_count": context.success_count,
             "final_state": str(context.state),
         })
+        if _stop_preview:
+            _stop_preview.set()
+        if preview_thread:
+            preview_thread.join(timeout=1)
         await capture.disconnect()
+        # JVM shutdown can hang — force exit
+        import os as _os
+        _os._exit(0)
 
 
 if __name__ == "__main__":
