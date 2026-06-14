@@ -76,7 +76,7 @@ async def main():
 
 async def _test_doudizhu(vlm: VlmClient, screenshot: bytes, out_dir: Path):
     from gameauto.skills.doudizhu.perception import DouDiZhuPerception
-    from gameauto.skills.doudizhu.decision import decide_bidding, decide_playing
+    from gameauto.skills.doudizhu.decision import decide
     from gameauto.skills.doudizhu.visualizer import annotate_game_state, annotate_clicks
 
     prompt_path = Path(__file__).parent.parent / "skills" / "doudizhu" / "prompts" / "doudizhu.jinja2"
@@ -93,12 +93,12 @@ async def _test_doudizhu(vlm: VlmClient, screenshot: bytes, out_dir: Path):
         "latency_ms": result.latency_ms,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    phase = state.get("phase", "?")
+    screen_type = state.get("screen_type", "?")
     buttons = state.get("buttons", [])
     cards = state.get("hand_cards", [])
-    print(f"Phase: {phase}  Buttons: {len(buttons)}  Cards: {len(cards)}")
+    print(f"Screen: {screen_type}  Buttons: {len(buttons)}  Cards: {len(cards)}")
     for b in buttons:
-        print(f"  [{b.get('text','?')}] active={b.get('active','?')}  ({b['x']},{b['y']})")
+        print(f"  [{b.get('text','?')}] color={b.get('color','?')}  ({b['x']},{b['y']})")
     print(f"  Cards: {len(cards)} positions")
 
     # 感知可视化
@@ -109,14 +109,10 @@ async def _test_doudizhu(vlm: VlmClient, screenshot: bytes, out_dir: Path):
 
     # 决策
     print("\n=== Decision ===")
-    if phase == "bidding":
-        actions = decide_bidding(buttons)
-    else:
-        last_played = state.get("last_played", [])
-        actions = decide_playing(buttons, cards, last_played)
+    actions = decide(state, round_num=1)
 
     (out_dir / "decision.json").write_text(json.dumps({
-        "phase": phase,
+        "screen_type": screen_type,
         "actions": [{"type": a.type, "x": a.x1, "y": a.y1, "desc": a.description} for a in actions],
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     for a in actions:

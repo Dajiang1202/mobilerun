@@ -74,10 +74,10 @@ async def main():
     serial = device_cfg.get("serial")
 
     # 选择后端: 改下面两行 import 即可切换 hdc ↔ scrcpy
-    # from gameauto.core.capture.hdc import HdcCapture as Capture
-    # from gameauto.core.input.hdc import HdcInput as Input
-    from gameauto.core.capture.scrcpy import ScrcpyCapture as Capture
-    from gameauto.core.input.scrcpy import ScrcpyInput as Input
+    from gameauto.core.capture.hdc import HdcCapture as Capture
+    from gameauto.core.input.hdc import HdcInput as Input
+    # from gameauto.core.capture.scrcpy import ScrcpyCapture as Capture
+    # from gameauto.core.input.scrcpy import ScrcpyInput as Input
 
     capture = Capture(serial)
     await capture.connect()
