@@ -3,7 +3,6 @@
 # Game-specific params go in skills/<game>/config.yaml
 
 device:
-  type: hdc
   serial: null
   hdc_path: hdc
   screenshot_method: auto
