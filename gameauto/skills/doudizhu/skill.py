@@ -1,8 +1,9 @@
 """DouDiZhuSkill — 斗地主 Skill 门面。
 
-两个游戏状态:
-  - BIDDING: 叫牌阶段（叫地主/抢地主/不叫/不加倍）
-  - PLAYING: 出牌阶段（出牌/不出/提示）
+统一游戏状态，由 VLM 感知 screen_type 后路由决策:
+  - start: 开局/结算界面 → 点击开始游戏
+  - waiting: 等待他人出牌 → 不做操作
+  - playing: 有牌有按钮 → 按优先级: 不叫→不加倍→提示+出牌→要不起
 
 使用方式与 Match3Skill 完全一致:
   skill = DouDiZhuSkill(perception)

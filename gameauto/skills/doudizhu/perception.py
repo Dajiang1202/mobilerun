@@ -1,16 +1,16 @@
 """斗地主感知 — VLM 屏幕识别。
 
 每轮发送截图到 VLM，识别:
-  - phase: 当前阶段 (bidding 叫牌 / playing 出牌)
-  - buttons: 所有按钮 (text + active 状态 + 坐标)
-  - hand_cards: 手牌位置 (x,y 坐标，不识别花色/点数)
+  - screen_type: 画面类型 (start 开局 / waiting 等待 / playing 出牌)
+  - buttons: 所有按钮 (text + color + 坐标)
+  - hand_cards: 手牌位置 (suit + value + x,y 坐标)
 
 VLM 输出格式:
-  {"phase": "playing", "buttons": [...], "hand_cards": [...]}
+  {"screen_type": "playing", "buttons": [...], "hand_cards": [...]}
 
 关键设计:
-  - active 字段替代颜色识别 (true=亮色可用, false=灰色不可用)
-  - 不识别花色点数 (M1 策略不需要，后续增强再加)
+  - 基于按钮文字内容决策，不依赖 enabled 状态
+  - VLM 返回按钮颜色辅助调试可视化
 """
 
 from __future__ import annotations
@@ -59,10 +59,10 @@ class DouDiZhuPerception:
             return PerceptionResult(raw_response=raw, parsed={})
 
         state = json.loads(json_str)
-        phase = state.get("phase", "unknown")
+        screen_type = state.get("screen_type", "unknown")
         buttons = len(state.get("buttons", []))
         cards = len(state.get("hand_cards", []))
-        logger.info("Phase: %s | Buttons: %d | Cards: %d", phase, buttons, cards)
+        logger.info("Screen: %s | Buttons: %d | Cards: %d", screen_type, buttons, cards)
 
         return PerceptionResult(raw_response=raw, parsed=state)
 
