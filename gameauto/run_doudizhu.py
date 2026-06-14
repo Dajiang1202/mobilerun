@@ -30,8 +30,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from gameauto.config.loader import load_game_config, load_global_config
-from gameauto.core.capture.hdc import HdcCapture
-from gameauto.core.input.hdc import HdcInput
 from gameauto.core.orchestration.base import GameState
 from gameauto.core.orchestration.context import GameContext
 from gameauto.core.orchestration.state_machine import StateMachine
@@ -73,12 +71,20 @@ async def main():
 
     # ── Step 3: Connect device ────────────────────────────────────────
     device_cfg = global_cfg.get("device", {})
-    capture = HdcCapture(serial=device_cfg.get("serial"), hdc_path=device_cfg.get("hdc_path", "hdc"))
-    await capture.connect()
-    capture_w, capture_h = capture.native_resolution
+    serial = device_cfg.get("serial")
 
-    input_device = HdcInput(serial=device_cfg.get("serial"), hdc_path=device_cfg.get("hdc_path", "hdc"))
+    # 选择后端: 改下面两行 import 即可切换 hdc ↔ scrcpy
+    # from gameauto.core.capture.hdc import HdcCapture as Capture
+    # from gameauto.core.input.hdc import HdcInput as Input
+    from gameauto.core.capture.scrcpy import ScrcpyCapture as Capture
+    from gameauto.core.input.scrcpy import ScrcpyInput as Input
+
+    capture = Capture(serial)
+    await capture.connect()
+    input_device = Input(serial)
     await input_device.connect()
+
+    capture_w, capture_h = capture.native_resolution
     input_device.set_input_resolution(capture_w, capture_h)
     logger.info("Device: %dx%d", capture_w, capture_h)
 
