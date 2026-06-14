@@ -68,5 +68,7 @@ class ScrcpyCapture(BaseCapture):
         init(self._serial, self._sdk_jar, self._java_home,
              scale=self._scale, max_fps=self._fps)
         self._w, self._h = resolution()
+        if not self._w or not self._h:
+            raise ConnectionError("ScrcpyCapture: stream failed, resolution is 0x0")
         log.info("ScrcpyCapture: native %dx%d, scale=%d, %dfps",
                  self._w, self._h, self._scale, self._fps)
