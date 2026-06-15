@@ -146,7 +146,14 @@ def _start_jvm(sdk_jar: str, java_home: str):
     if java_home:
         os.environ["JAVA_HOME"] = java_home
     if not os.environ.get("JAVA_HOME"):
-        for d in ["E:/DevEco Studio/jbr", "C:/DevEco Studio/jbr"]:
+        # Search order: project-local → DevEco Studio → system
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        for d in [
+            os.path.join(project_root, "tools", "jbr"),
+            "D:/resource/jbr",
+            "E:/DevEco Studio/jbr",
+            "C:/DevEco Studio/jbr",
+        ]:
             if os.path.isdir(d):
                 os.environ["JAVA_HOME"] = d
                 break
