@@ -1,0 +1,18 @@
+# DouZero 斗地主配置
+# 对局设置
+max_rounds: 20
+
+# DouZero 模型路径（遵循 DEPLOY.md，大文件放 D:/resource/）
+model_dir: D:/resource/douzero
+
+# 模板匹配置信度
+template_confidence: 0.90
+card_confidence: 0.85
+pass_confidence: 0.90
+button_confidence: 0.90
+
+# 时间控制（秒）
+wait_between_rounds: 3.0
+wait_after_action: 1.5
+tap_interval: 0.08
+wait_for_opponent: 2.0
