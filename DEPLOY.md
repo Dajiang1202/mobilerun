@@ -18,6 +18,10 @@ D:\resource\
 │   └── Windows\
 │       ├── pikafish-bmi2.exe     # 引擎主程序 (~1.5MB)
 │       └── pikafish.nnue         # 神经网络权重 (~51MB)
+├── douzero\                       # DouZero 斗地主模型 (~18MB)
+│   ├── landlord.ckpt              # 地主模型
+│   ├── landlord_up.ckpt           # 农民（上家）模型
+│   └── landlord_down.ckpt         # 农民（下家）模型
 └── hosScrcpy-1.0.15-beta.jar     # HOScrcpy SDK (~200KB)
 ```
 
