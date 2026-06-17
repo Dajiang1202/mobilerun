@@ -70,7 +70,10 @@ class GameLoop:
 
             # ── 1. Capture screenshot ──────────────────────────────
             logger.debug("Screenshot...")
+            t0 = time.perf_counter()
             img_bytes = await self._capture.screenshot()
+            dt = (time.perf_counter() - t0) * 1000
+            logger.info("Screenshot: %.1fms, %dB", dt, len(img_bytes))
             (round_dir / "screenshot.png").write_bytes(img_bytes)
 
             # ── 2. State machine: perceive + decide ─────────────────
