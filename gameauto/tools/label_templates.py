@@ -24,7 +24,8 @@ SKILL_DIR = Path(__file__).parent.parent / "skills" / "doudizhu_douzero"
 TEMPLATE_DIR = SKILL_DIR / "assets" / "templates"
 ROI_CONFIG_PATH = SKILL_DIR / "assets" / "rois.json"
 
-PANEL_W = 600
+PANEL_H = 500  # screenshot display height (width auto from aspect ratio)
+REF_SCALE = 3   # reference template zoom factor
 
 # Data
 ref_imgs = []       # [(name, bgr)]
@@ -33,7 +34,9 @@ ref_idx = 0
 scr_idx = 0
 category = "buttons"
 
-# Drawing
+# Drawing state
+ref_w = 100   # reference display width (updated per frame)
+scr_w = 800   # screenshot display width (updated per frame)
 drawing = False
 start_x, start_y = -1, -1
 roi = None  # [x1,y1,x2,y2] in original screenshot coords
@@ -56,36 +59,51 @@ def load_images(path, exts, label):
 
 
 def render():
-    """Build side-by-side display."""
-    global scale, right_orig
+    """Build side-by-side display: left=ref (3x zoom), right=screenshot (scale to height)."""
+    global scale, right_orig, ref_w, scr_w, drawing, roi, start_x, start_y
 
-    # Left: reference template
-    _, ref = ref_imgs[ref_idx]
-    rh, rw = ref.shape[:2]
-    s = PANEL_W / max(rw, 1)
-    left = cv2.resize(ref, (PANEL_W, max(1, int(rh * s))))
-
-    # Right: screenshot with ROI overlay
+    # Right: screenshot scaled to PANEL_H height
     _, scr = screen_imgs[scr_idx]
     right_orig = scr
     h, w = scr.shape[:2]
-    scale = w / PANEL_W
-    right = cv2.resize(scr, (PANEL_W, max(1, int(h / scale))))
+    scale = h / PANEL_H
+    scr_w = max(1, int(w / scale))
+    scr_h = PANEL_H
+    right = cv2.resize(scr, (scr_w, scr_h))
 
-    # Overlay selection
+    # Left: reference template at REF_SCALE zoom
+    _, ref = ref_imgs[ref_idx]
+    rh2, rw2 = ref.shape[:2]
+    ref_w = rw2 * REF_SCALE
+    ref_h = rh2 * REF_SCALE
+    left = cv2.resize(ref, (ref_w, ref_h), interpolation=cv2.INTER_NEAREST)
+
+    # Left header: info text
+    header_h = 24
+    header = np.zeros((header_h, ref_w, 3), dtype=np.uint8)
+    cv2.putText(header, ref_imgs[ref_idx][0], (2, 16),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+
+    # Pad left to match right height
+    l_total = ref_h + header_h
+    max_h = max(l_total, scr_h)
+    if l_total < max_h:
+        pad = np.zeros((max_h - l_total, ref_w, 3), dtype=np.uint8)
+        left = np.vstack([header, left, pad])
+    else:
+        left = np.vstack([header, left])
+
+    # Pad right if needed
+    if scr_h < max_h:
+        pad = np.zeros((max_h - scr_h, scr_w, 3), dtype=np.uint8)
+        right = np.vstack([right, pad])
+
+    # ROI overlay on right
     if roi:
         x1, y1, x2, y2 = roi
         dx1, dy1 = int(x1 / scale), int(y1 / scale)
         dx2, dy2 = int(x2 / scale), int(y2 / scale)
         cv2.rectangle(right, (dx1, dy1), (dx2, dy2), (0, 0, 255), 2)
-
-    # Match heights
-    lh, rh2 = left.shape[0], right.shape[0]
-    max_h = max(lh, rh2)
-    if lh < max_h:
-        left = np.vstack([left, np.zeros((max_h - lh, PANEL_W, 3), dtype=np.uint8)])
-    if rh2 < max_h:
-        right = np.vstack([right, np.zeros((max_h - rh2, PANEL_W, 3), dtype=np.uint8)])
 
     sep = np.ones((max_h, 2, 3), dtype=np.uint8) * 100
     return np.hstack([left, sep, right])
@@ -93,9 +111,10 @@ def render():
 
 def mouse(event, x, y, _f, _p):
     global drawing, start_x, start_y, roi
-    if x < PANEL_W + 2:
+    # Only respond to clicks on the RIGHT side
+    if x < ref_w + 2:
         return
-    rx, ry = x - PANEL_W - 2, y
+    rx, ry = x - ref_w - 2, y
     ox, oy = int(rx * scale), int(ry * scale)
     if event == cv2.EVENT_LBUTTONDOWN:
         drawing = True
@@ -166,7 +185,9 @@ def main():
 
     wname = "左:模板 | 右:截图 | ←→切模板 ↑↓切截图 框选=保存"
     cv2.namedWindow(wname, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(wname, PANEL_W * 2 + 20, 600)
+    # Auto-size: first render determines dimensions
+    _ = render()
+    cv2.resizeWindow(wname, ref_w + scr_w + 20, PANEL_H + 30)
     cv2.setMouseCallback(wname, mouse)
 
     # Start from non-bg template
