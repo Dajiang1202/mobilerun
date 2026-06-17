@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 from gameauto.core.orchestration.base import Action
-from gameauto.skills.xiangqi.engine import Board, find_best_move
+from gameauto.skills.xiangqi.engine import Board, find_best_move_pikafish
 
 logger = logging.getLogger("gameauto.xiangqi.decision")
 
@@ -78,7 +78,7 @@ def decide(state: dict, round_num: int) -> list[Action]:
         logger.exception("Failed to build board from pieces")
         return []
 
-    best = find_best_move(board, side=side)
+    best = find_best_move_pikafish(board, side=side, movetime=2000)
     if best is None:
         logger.warning("No legal move found")
         return []

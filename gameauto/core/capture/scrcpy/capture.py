@@ -31,7 +31,7 @@ class ScrcpyCapture(BaseCapture):
         w, h = capture.native_resolution            # native (for coords)
     """
 
-    _DEFAULT_SDK_JAR = "gameauto/resource/hosScrcpy-1.0.15-beta.jar"
+    _DEFAULT_SDK_JAR = "D:/resource/hosScrcpy-1.0.15-beta.jar"
     _DEFAULT_SCALE = 2
     _DEFAULT_FPS = 30
 
