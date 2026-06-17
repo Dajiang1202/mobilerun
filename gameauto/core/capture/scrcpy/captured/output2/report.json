@@ -1,0 +1,103 @@
+{
+  "model": "qwen3.6-plus",
+  "total_screenshots": 6,
+  "comparisons": [
+    {
+      "file": "1",
+      "thinking_on": {
+        "board": "0x0",
+        "swaps": 0,
+        "latency_ms": 0
+      },
+      "thinking_off": {
+        "board": "8x8",
+        "swaps": 2,
+        "latency_ms": 9243.0
+      },
+      "board_match": false,
+      "swaps_match": false
+    },
+    {
+      "file": "2",
+      "thinking_on": {
+        "board": "8x8",
+        "swaps": 2,
+        "latency_ms": 119508.0
+      },
+      "thinking_off": {
+        "board": "8x8",
+        "swaps": 2,
+        "latency_ms": 9559.0
+      },
+      "board_match": true,
+      "swaps_match": true
+    },
+    {
+      "file": "3",
+      "thinking_on": {
+        "board": "9x9",
+        "swaps": 2,
+        "latency_ms": 108868.0
+      },
+      "thinking_off": {
+        "board": "9x9",
+        "swaps": 2,
+        "latency_ms": 12618.0
+      },
+      "board_match": true,
+      "swaps_match": true
+    },
+    {
+      "file": "4",
+      "thinking_on": {
+        "board": "9x9",
+        "swaps": 2,
+        "latency_ms": 315949.0
+      },
+      "thinking_off": {
+        "board": "9x9",
+        "swaps": 2,
+        "latency_ms": 10769.0
+      },
+      "board_match": true,
+      "swaps_match": true
+    },
+    {
+      "file": "5",
+      "thinking_on": {
+        "board": "0x0",
+        "swaps": 0,
+        "latency_ms": 0
+      },
+      "thinking_off": {
+        "board": "9x9",
+        "swaps": 2,
+        "latency_ms": 10097.0
+      },
+      "board_match": false,
+      "swaps_match": false
+    },
+    {
+      "file": "6",
+      "thinking_on": {
+        "board": "0x0",
+        "swaps": 0,
+        "latency_ms": 0
+      },
+      "thinking_off": {
+        "board": "8x8",
+        "swaps": 2,
+        "latency_ms": 7296.0
+      },
+      "board_match": false,
+      "swaps_match": false
+    }
+  ],
+  "summary": {
+    "board_match": "3/6",
+    "swaps_match": "3/6",
+    "avg_latency_on_ms": 90721.0,
+    "avg_latency_off_ms": 9930.0,
+    "latency_delta_ms": 80790.0
+  }
+}

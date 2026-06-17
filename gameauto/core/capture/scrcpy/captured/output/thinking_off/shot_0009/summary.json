@@ -1,0 +1,69 @@
+{
+  "file": "shot_0009",
+  "label": "thinking_off",
+  "model": "qwen3.6-plus",
+  "latency_ms": 10336.0,
+  "screen_type": "playing",
+  "buttons": [
+    {
+      "text": "提示",
+      "color": "gold",
+      "x": 415,
+      "y": 540
+    },
+    {
+      "text": "出牌",
+      "color": "gold",
+      "x": 605,
+      "y": 540
+    }
+  ],
+  "hand_cards_count": 12,
+  "hand_cards_first5": [
+    {
+      "suit": "s",
+      "value": "2",
+      "x": 285,
+      "y": 780
+    },
+    {
+      "suit": "c",
+      "value": "2",
+      "x": 335,
+      "y": 780
+    },
+    {
+      "suit": "s",
+      "value": "A",
+      "x": 385,
+      "y": 780
+    },
+    {
+      "suit": "s",
+      "value": "K",
+      "x": 435,
+      "y": 780
+    },
+    {
+      "suit": "c",
+      "value": "K",
+      "x": 485,
+      "y": 780
+    }
+  ],
+  "actions": [
+    {
+      "type": "tap",
+      "x": 415.0,
+      "y": 540.0,
+      "desc": "Click '提示'"
+    },
+    {
+      "type": "tap",
+      "x": 605.0,
+      "y": 540.0,
+      "desc": "Click '出牌'"
+    }
+  ],
+  "vlm_raw_preview": "{\n  \"screen_type\": \"playing\",\n  \"buttons\": [\n    {\"text\": \"提示\", \"color\": \"gold\", \"x\": 415, \"y\": 540},\n    {\"text\": \"出牌\", \"color\": \"gold\", \"x\": 605, \"y\": 540}\n  ],\n  \"hand_cards\": [\n    {\"suit\": \"spades\", \"value\": \"2\", \"x\": 285, \"y\": 780},\n    {\"suit\": \"clubs\", \"value\": \"2\", \"x\": 335, \"y\": 780},\n    "
+}

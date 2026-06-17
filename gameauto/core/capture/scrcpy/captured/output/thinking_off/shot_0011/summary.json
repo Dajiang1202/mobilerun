@@ -1,0 +1,75 @@
+{
+  "file": "shot_0011",
+  "label": "thinking_off",
+  "model": "qwen3.6-plus",
+  "latency_ms": 8258.0,
+  "screen_type": "playing",
+  "buttons": [
+    {
+      "text": "不出",
+      "color": "blue",
+      "x": 345,
+      "y": 560
+    },
+    {
+      "text": "提示",
+      "color": "gold",
+      "x": 535,
+      "y": 560
+    },
+    {
+      "text": "出牌",
+      "color": "gold",
+      "x": 665,
+      "y": 560
+    }
+  ],
+  "hand_cards_count": 8,
+  "hand_cards_first5": [
+    {
+      "suit": "s",
+      "value": "2",
+      "x": 348,
+      "y": 765
+    },
+    {
+      "suit": "c",
+      "value": "2",
+      "x": 398,
+      "y": 765
+    },
+    {
+      "suit": "s",
+      "value": "A",
+      "x": 448,
+      "y": 765
+    },
+    {
+      "suit": "d",
+      "value": "Q",
+      "x": 498,
+      "y": 765
+    },
+    {
+      "suit": "d",
+      "value": "J",
+      "x": 548,
+      "y": 765
+    }
+  ],
+  "actions": [
+    {
+      "type": "tap",
+      "x": 535.0,
+      "y": 560.0,
+      "desc": "Click '提示'"
+    },
+    {
+      "type": "tap",
+      "x": 665.0,
+      "y": 560.0,
+      "desc": "Click '出牌'"
+    }
+  ],
+  "vlm_raw_preview": "{\n  \"screen_type\": \"playing\",\n  \"buttons\": [\n    {\"text\": \"不出\", \"color\": \"blue\", \"x\": 345, \"y\": 560},\n    {\"text\": \"提示\", \"color\": \"gold\", \"x\": 535, \"y\": 560},\n    {\"text\": \"出牌\", \"color\": \"gold\", \"x\": 665, \"y\": 560}\n  ],\n  \"hand_cards\": [\n    {\"suit\": \"spades\", \"value\": \"2\", \"x\": 348, \"y\": 765},\n    "
+}

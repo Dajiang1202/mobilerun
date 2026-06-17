@@ -1,0 +1,21 @@
+{
+  "file": "D:\\gameauto\\mobilerun\\gameauto\\core\\capture\\scrcpy\\captured\\shot_0028.png",
+  "screen_type": "playing",
+  "buttons": [
+    {
+      "text": "提示",
+      "color": "gold",
+      "x": 405,
+      "y": 545
+    },
+    {
+      "text": "出牌",
+      "color": "gold",
+      "x": 595,
+      "y": 545
+    }
+  ],
+  "hand_cards_count": 1,
+  "actions": [],
+  "vlm_raw": "```json\n{\n  \"screen_type\": \"playing\",\n  \"buttons\": [\n    {\"text\": \"提示\", \"color\": \"gold\", \"x\": 405, \"y\": 545},\n    {\"text\": \"出牌\", \"color\": \"gold\", \"x\": 595, \"y\": 545}\n  ],\n  \"hand_cards\": [\n    {\"suit\": \"spades\", \"value\": \"2\", \"x\": 500, \"y\": 765}\n  ]\n}\n```"
+}
