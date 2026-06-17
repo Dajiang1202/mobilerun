@@ -128,6 +128,7 @@ def make_right_panel():
 
 def make_display():
     """Combine left + right into one image."""
+    global left_panel, right_panel
     make_left_panel()
     make_right_panel()
     # Match heights
