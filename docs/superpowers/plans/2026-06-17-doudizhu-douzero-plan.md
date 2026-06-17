@@ -26,7 +26,7 @@ Create:
   skills/doudizhu_douzero/douzero/env/env.py           (copy + adapt)
   skills/doudizhu_douzero/douzero/models.py            (copy + adapt)
   skills/doudizhu_douzero/douzero/deep_agent.py        (copy + adapt)
-  skills/doudizhu_douzero/douzero/baselines/            (copy weights)
+  skills/doudizhu_douzero/douzero/baselines/       (README, weights in D:/resource/douzero)
   skills/doudizhu_douzero/perception.py
   skills/doudizhu_douzero/decision.py
   skills/doudizhu_douzero/visualizer.py
@@ -47,7 +47,7 @@ Modify: (none — all new files)
 - Create: `skills/doudizhu_douzero/douzero/__init__.py`
 - Create: `skills/doudizhu_douzero/douzero/env/__init__.py`
 - Create: `skills/doudizhu_douzero/douzero/env/utils.py`
-- Create: `skills/doudizhu_douzero/douzero/baselines/.gitkeep`
+- Create: `skills/doudizhu_douzero/douzero/baselines/README.md`（指向 D:/resource/douzero）
 
 - [ ] **Step 1: 创建目录结构**
 
@@ -116,15 +116,28 @@ from douzero.env.utils import *
 from .utils import *
 ```
 
-- [ ] **Step 8: 创建 baselines 占位 + 复制模型权重**
+- [ ] **Step 8: 复制模型权重到 D:/resource/douzero/**
+
+遵循 `DEPLOY.md` 约定，大文件不放 git 仓库。
 
 ```bash
-cp -r tmp/DouZero_For_HappyDouDiZhu-2.0/baselines/douzero_WP/*.ckpt gameauto/skills/doudizhu_douzero/douzero/baselines/
+mkdir -p /d/resource/douzero
+cp tmp/DouZero_For_HappyDouDiZhu-2.0/baselines/douzero_WP/*.ckpt /d/resource/douzero/
+```
+
+创建 `skills/doudizhu_douzero/douzero/baselines/README.md` 说明路径：
+```markdown
+# DouZero 预训练模型
+将 DouZero 预训练权重放入 `D:\resource\douzero\` 目录：
+- `landlord.ckpt` — 地主模型
+- `landlord_up.ckpt` — 农民（地主上家）模型
+- `landlord_down.ckpt` — 农民（地主下家）模型
+来源：https://github.com/kwai/DouZero
 ```
 
 验证：
 ```bash
-ls gameauto/skills/doudizhu_douzero/douzero/baselines/
+ls /d/resource/douzero/
 # 应看到: landlord.ckpt  landlord_up.ckpt  landlord_down.ckpt
 ```
 
@@ -538,7 +551,7 @@ from skills.doudizhu_douzero.douzero.deep_agent import DeepAgent
 from skills.doudizhu_douzero.douzero.env.env import Env
 
 # Load model and test on a game state
-agent = DeepAgent('landlord', 'gameauto/skills/doudizhu_douzero/douzero/baselines/landlord.ckpt')
+agent = DeepAgent('landlord', 'D:/resource/douzero/landlord.ckpt')
 print('DeepAgent loaded OK')
 
 env = Env(objective='wp')
@@ -575,7 +588,7 @@ git commit -m "feat(doudizhu_douzero): Task 5 — 适配 deep_agent.py (CPU-only
 max_rounds: 20
 
 # DouZero 模型路径（相对于 skill 目录）
-model_dir: douzero/baselines
+model_dir: D:/resource/douzero
 
 # 模板匹配置信度
 template_confidence: 0.90
@@ -916,7 +929,7 @@ class DouzeroDecision:
     optimal action selection.
 
     Usage:
-        decision = DouzeroDecision(model_dir="douzero/baselines")
+        decision = DouzeroDecision(model_dir="D:/resource/douzero")
         decision.init_round(hand_cards, landlord_cards, my_position)
         actions = decision.decide(perception_dict)
     """
@@ -1193,7 +1206,7 @@ print('Decision class import OK')
 cd gameauto && python -c "
 from skills.doudizhu_douzero.decision import DouzeroDecision
 
-decision = DouzeroDecision('gameauto/skills/doudizhu_douzero/douzero/baselines')
+decision = DouzeroDecision('D:/resource/douzero')
 
 # Simulate a landlord hand (20 cards)
 hand = ['3','4','5','5','6','7','8','9','T','J','Q','K','A','A','2','2','X','D','3','3']
@@ -1672,7 +1685,7 @@ async def main():
     logger.info("Perception: CV template matching | templates=%s", template_dir)
 
     # ── Step 5: Setup decision (DouZero DeepAgent, NO VLM) ─────────────
-    model_dir = skill_dir / game_cfg.get("model_dir", "douzero/baselines")
+    model_dir = game_cfg.get("model_dir", "D:/resource/douzero")
     decision = DouzeroDecision(model_dir=str(model_dir))
     logger.info("Decision: DouZero DeepAgent | models=%s", model_dir)
 
@@ -1792,7 +1805,7 @@ def test_env_reset_and_step():
 def test_deep_agent_loading():
     """Test DeepAgent model loading and inference."""
     print("=== Test 2: DeepAgent loading ===")
-    model_dir = Path(__file__).parent.parent / "skills" / "doudizhu_douzero" / "douzero" / "baselines"
+    model_dir = Path("D:/resource/douzero")
     
     from gameauto.skills.doudizhu_douzero.douzero.deep_agent import DeepAgent
     
@@ -1929,9 +1942,7 @@ skills/doudizhu_douzero/
     ├── models.py
     ├── deep_agent.py
     ├── baselines/
-    │   ├── landlord.ckpt
-    │   ├── landlord_up.ckpt
-    │   └── landlord_down.ckpt
+    │   └── README.md          (权重文件见 D:/resource/douzero/)
     └── env/
         ├── __init__.py
         ├── utils.py
