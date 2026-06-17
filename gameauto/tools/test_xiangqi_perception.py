@@ -29,7 +29,7 @@ from gameauto.config.loader import load_global_config
 from gameauto.core.perception.vlm_client import VlmClient
 from gameauto.skills.xiangqi.perception import XiangqiPerception
 from gameauto.skills.xiangqi.decision import decide
-from gameauto.skills.xiangqi.engine import Board, find_best_move
+from gameauto.skills.xiangqi.engine import Board, find_best_move_pikafish
 from gameauto.skills.xiangqi.visualizer import annotate_board_state, annotate_move, annotate_clicks
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -89,7 +89,7 @@ async def process_one(vlm: VlmClient, perception: XiangqiPerception,
         # 同时直接用引擎算一遍（展示记谱）
         try:
             board = Board.from_pieces(pieces)
-            move_result = find_best_move(board, side="red")
+            move_result = find_best_move_pikafish(board, side="red")
         except Exception as e:
             print(f"  Engine error: {e}")
 

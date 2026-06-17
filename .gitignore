@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 gameauto/logs/
 HOScrcpy-main/
+tools/pikafish/
+gameauto/resource/

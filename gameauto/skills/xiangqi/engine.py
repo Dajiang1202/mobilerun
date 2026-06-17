@@ -151,6 +151,33 @@ class Board:
                     })
         return pieces
 
+    def to_fen(self) -> str:
+        """导出为 xiangqi FEN 字符串（Pikafish/UCI 格式）。
+
+        FEN: rows from top(black) to bottom(red), '/' separated.
+        Piece letters: K=King A=Advisor B=Elephant(Bishop) N=Knight R=Rook C=Cannon P=Pawn
+        Uppercase=Red, Lowercase=Black. Digits = consecutive empty squares.
+        """
+        rows = []
+        for row in range(ROWS):  # 0=black top, 9=red bottom
+            empty = 0
+            fen_row = ""
+            for col in range(COLS):
+                val = self.grid[row][col]
+                if val == 0:
+                    empty += 1
+                else:
+                    if empty > 0:
+                        fen_row += str(empty)
+                        empty = 0
+                    fen_row += _piece_to_fen(val)
+            if empty > 0:
+                fen_row += str(empty)
+            rows.append(fen_row)
+        fen = "/".join(rows)
+        side = "w" if self.side_to_move > 0 else "b"  # red = white in UCI
+        return f"{fen} {side}"
+
     def copy(self) -> "Board":
         b = Board()
         b.grid = copy.deepcopy(self.grid)
@@ -679,3 +706,110 @@ def find_best_move(board: Board, side: str = "red") -> dict | None:
         "piece": piece_name,
         "captured": captured_name,
     }
+
+
+# ── FEN 辅助 ───────────────────────────────────────────────────────
+
+_FEN_PIECE_MAP = {
+    6: "K", -6: "k",       # 帅/将
+    7: "A", -7: "a",       # 仕/士
+    8: "B", -8: "b",       # 相/象
+    9: "N", -9: "n",       # 马
+    10: "R", -10: "r",     # 车
+    5: "C", -5: "c",       # 炮
+    4: "P", -4: "p",       # 兵/卒
+}
+
+
+def _piece_to_fen(val: int) -> str:
+    return _FEN_PIECE_MAP.get(val, "?")
+
+
+# ── Pikafish UCI 引擎集成 ──────────────────────────────────────────
+
+import subprocess
+import os
+import threading
+
+
+class PikafishEngine:
+    """Pikafish UCI 象棋引擎封装（每次搜索启动独立进程，兼容 Windows 管道）。"""
+
+    def __init__(self, exe_path: str, threads: int = 1, hash_mb: int = 64) -> None:
+        self._exe = exe_path
+        self._threads = threads
+        self._hash = hash_mb
+        self._exe_dir = os.path.dirname(os.path.abspath(exe_path))
+
+    def search(self, board: Board, movetime: int = 3000) -> dict | None:
+        """启动 Pikafish → 发送 UCI + position + go → 读取 bestmove → 退出。"""
+        fen = board.to_fen()
+        cmds = (
+            "uci\n"
+            "setoption name Threads value %d\n"
+            "setoption name Hash value %d\n"
+            "position fen %s\n"
+            "go movetime %d\n"
+        ) % (self._threads, self._hash, fen, movetime)
+
+        try:
+            proc = subprocess.Popen(
+                [self._exe], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, cwd=self._exe_dir,
+            )
+            stdout, _ = proc.communicate(input=cmds.encode(),
+                                         timeout=movetime / 1000.0 + 15)
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            return None
+        except Exception:
+            return None
+
+        for line in stdout.decode(errors="replace").splitlines():
+            if line.startswith("bestmove"):
+                parts = line.strip().split()
+                if len(parts) >= 2 and parts[1] != "(none)":
+                    return self._parse_uci_move(board, parts[1])
+        return None
+
+    @staticmethod
+    def _parse_uci_move(board: Board, uci: str) -> dict | None:
+        """解析 UCI 走法 (如 'h2e2')。"""
+        if len(uci) < 4:
+            return None
+        fc = ord(uci[0]) - ord('a'); fr = int(uci[1])
+        tc = ord(uci[2]) - ord('a'); tr = int(uci[3])
+        if not (0 <= fc < 9 and 0 <= fr <= 9 and 0 <= tc < 9 and 0 <= tr <= 9):
+            return None
+        piece = board.grid[fr][fc]
+        if piece == 0:
+            return None
+        captured = board.grid[tr][tc]
+        move = Move(fr, fc, tr, tc, piece, captured)
+        notation = to_notation(move, piece)
+        return {
+            "notation": notation,
+            "from": {"col": fc + 1, "row": 10 - fr},
+            "to": {"col": tc + 1, "row": 10 - tr},
+            "piece": PIECE_NAMES.get(piece, "?"),
+            "captured": PIECE_NAMES.get(captured) if captured else None,
+            "uci": uci, "engine": "pikafish",
+        }
+
+
+# 全局 Pikafish 实例
+_pikafish: PikafishEngine | None = None
+_PIKAFISH_PATH = "D:/resource/pikafish/Windows/pikafish-bmi2.exe"
+
+
+def find_best_move_pikafish(board: Board, side: str = "red",
+                            movetime: int = 3000) -> dict | None:
+    """用 Pikafish 搜索最佳走法（ELO 3500+，公园大爷杀手）。"""
+    global _pikafish
+    if _pikafish is None:
+        if not os.path.exists(_PIKAFISH_PATH):
+            logger.warning("Pikafish not found, falling back to built-in engine")
+            return find_best_move(board, side)
+        _pikafish = PikafishEngine(_PIKAFISH_PATH)
+    return _pikafish.search(board, movetime)
