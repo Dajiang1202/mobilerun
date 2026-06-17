@@ -24,16 +24,19 @@ class VlmClient:
         temperature: Sampling temperature (default 0.2, same as mobilerun fast_game_agent).
     """
 
-    def __init__(self, model: str, base_url: str, api_key: str, temperature: float = 0.2) -> None:
+    def __init__(self, model: str, base_url: str, api_key: str, temperature: float = 0.2,
+                 enable_thinking: bool = False) -> None:
         self.model = model
         self.base_url = base_url
         self.temperature = temperature
+        self._enable_thinking = enable_thinking
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
             http_client=httpx.AsyncClient(proxy=None),  # bypass system proxy
         )
-        logger.info("VlmClient: model=%s base_url=%s api_key=%s...", model, base_url, api_key[:12] if api_key else "(empty)")
+        logger.info("VlmClient: model=%s base_url=%s thinking=%s api_key=%s...",
+                     model, base_url, enable_thinking, api_key[:12] if api_key else "(empty)")
 
     async def chat(
         self,
@@ -73,6 +76,7 @@ class VlmClient:
             messages=messages,
             temperature=self.temperature,
             timeout=timeout,
+            extra_body={"enable_thinking": self._enable_thinking},
         )
         return response.choices[0].message.content or ""
 
