@@ -8,3 +8,5 @@ gameauto/logs/
 HOScrcpy-main/
 tools/pikafish/
 gameauto/resource/
+logs.zip
+gameauto/core/capture/scrcpy/captured/output.zip
