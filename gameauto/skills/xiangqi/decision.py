@@ -60,22 +60,17 @@ def decide(state: dict, round_num: int) -> list[Action]:
         return []
 
     # ── 对局中 ────────────────────────────────────────────────────
-    if screen_type != "playing" or not pieces:
-        return []
-
-    # 判断红黑方（根据棋子数量或位置推断：己方在下方，即 row 较小的为红方）
-    red_pieces = [p for p in pieces if p.get("side") == "red"]
-    if not red_pieces:
-        logger.info("No red pieces found — likely opponent's turn or recognition issue")
+    grid = state.get("grid", [])
+    if screen_type != "playing" or not grid:
         return []
 
     side = "red"  # 默认红方（玩家在下方）
 
     # ── 构建棋盘 + 搜索最优走法 ───────────────────────────────────
     try:
-        board = Board.from_pieces(pieces, side_to_move=side)
+        board = Board.from_grid(grid, side_to_move=side)
     except Exception:
-        logger.exception("Failed to build board from pieces")
+        logger.exception("Failed to build board from grid")
         return []
 
     best = find_best_move_pikafish(board, side=side, movetime=2000)
@@ -89,16 +84,10 @@ def decide(state: dict, round_num: int) -> list[Action]:
 
     logger.info("Best move: %s (from %s to %s)", notation, from_pos, to_pos)
 
-    # ── 查找 pixel_pos（优先从 board 边界计算精确位置）─────────
+    # ── 从 board 边界计算像素坐标 ─────────────────────────────────
     board_rect = state.get("board", {})
     from_pixel = _pixel_from_board(board_rect, from_pos["col"], from_pos["row"])
     to_pixel = _pixel_from_board(board_rect, to_pos["col"], to_pos["row"])
-
-    # Fallback: 从 VLM 的 pixel_pos 查找
-    if from_pixel is None:
-        from_pixel = _find_pixel(pieces, from_pos["col"], from_pos["row"])
-    if to_pixel is None:
-        to_pixel = _find_pixel(pieces, to_pos["col"], to_pos["row"])
 
     if from_pixel is None or to_pixel is None:
         logger.error("Cannot find pixel_pos for move: from=%s to=%s", from_pos, to_pos)

@@ -48,10 +48,12 @@ class XiangqiPerception:
             return PerceptionResult(raw_response=raw, parsed={})
 
         state = json.loads(json_str)
+        state = self._normalize(state)
         state = self._validate(state)
 
         screen_type = state.get("screen_type", "unknown")
-        n_pieces = len(state.get("pieces", []))
+        grid = state.get("grid", [])
+        n_pieces = sum(1 for row in grid for c in row if c != "0") if grid else 0
         n_buttons = len(state.get("buttons", []))
         logger.info("Screen: %s | Pieces: %d | Buttons: %d", screen_type, n_pieces, n_buttons)
 
@@ -68,29 +70,41 @@ class XiangqiPerception:
         return m.group(0) if m else None
 
     @staticmethod
+    def _normalize(state: dict) -> dict:
+        """标准化字段名（兼容新旧格式）。"""
+        # screen → screen_type
+        if "screen" in state and "screen_type" not in state:
+            state["screen_type"] = state.pop("screen")
+        # btns → buttons
+        if "btns" in state and "buttons" not in state:
+            state["buttons"] = state.pop("btns")
+        # board compact: {"l":60,"t":120,"r":940,"b":880} → {"left":60,...}
+        b = state.get("board", {})
+        if b and "l" in b:
+            state["board"] = {"left": b["l"], "top": b["t"], "right": b["r"], "bottom": b["b"]}
+        return state
+
+    @staticmethod
     def _validate(state: dict) -> dict:
-        """校验并修正 VLM 输出。"""
-        pieces = state.get("pieces", [])
-        if not pieces:
+        """校验棋盘网格格式。"""
+        grid = state.get("grid", [])
+        if not grid:
             return state
 
+        # 确保10行每行9字符
         valid = []
-        for p in pieces:
-            bp = p.get("board_pos", {})
-            pp = p.get("pixel_pos", {})
-            col = bp.get("col", 0)
-            row = bp.get("row", 0)
-            x = pp.get("x", 0)
-            y = pp.get("y", 0)
-            # 跳过无效棋子
-            if not (1 <= col <= 9 and 1 <= row <= 10):
-                continue
-            if x <= 0 and y <= 0:
-                continue
-            valid.append(p)
+        for row in grid[:10]:
+            row_str = str(row)[:9].ljust(9, "0")
+            valid.append(row_str)
+        while len(valid) < 10:
+            valid.append("0" * 9)
+        state["grid"] = valid
 
-        if len(valid) != len(pieces):
-            logger.warning("Filtered %d invalid pieces", len(pieces) - len(valid))
-            state["pieces"] = valid
+        # 校验棋子数量（正常对局 2-32 子）
+        n = sum(1 for r in valid for c in r if c != "0")
+        if n < 2:
+            logger.warning("Too few pieces: %d", n)
+        elif n > 32:
+            logger.warning("Too many pieces: %d, truncating", n)
 
         return state
