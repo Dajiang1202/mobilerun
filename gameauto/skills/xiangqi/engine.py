@@ -101,6 +101,28 @@ class Board:
         self.side_to_move = 1  # 1=红方, -1=黑方
 
     @classmethod
+    def from_grid(cls, grid: list[str], side_to_move: str = "red") -> "Board":
+        """从 VLM 紧凑网格格式构建棋盘。
+
+        grid: 10个字符串，每串9字符。大写=红，小写=黑。
+              R=车 N=马 B=象 A=士 K=将 C=炮 P=兵
+              row 0 = 黑方底线(top), row 9 = 红方底线(bottom)
+        """
+        board = cls()
+        board.side_to_move = 1 if side_to_move == "red" else -1
+        _CHAR_MAP = {
+            # Red (uppercase)
+            "R": 10, "N": 9, "B": 8, "A": 7, "K": 6, "C": 5, "P": 4,
+            # Black (lowercase)
+            "r": -10, "n": -9, "b": -8, "a": -7, "k": -6, "c": -5, "p": -4,
+        }
+        for row_idx, row_str in enumerate(grid[:10]):
+            for col_idx, ch in enumerate(row_str[:9]):
+                if ch in _CHAR_MAP:
+                    board.grid[row_idx][col_idx] = _CHAR_MAP[ch]
+        return board
+
+    @classmethod
     def from_pieces(cls, pieces: list[dict], side_to_move: str = "red") -> "Board":
         """从 VLM 返回的 pieces 列表构建棋盘。
 
