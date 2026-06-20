@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -52,6 +53,8 @@ class DouDiZhuDouzeroStateRegistrar:
         sm.register(SETTLEMENT, detector=self._detect_settlement, handler=self._handle)
         sm.register(BIDDING, detector=self._detect_bidding, handler=self._handle)
         sm.register(PLAYING, detector=self._detect_playing, handler=self._handle)
+        # 兜底: 以上都不命中(无按钮/对手思考/过渡帧) → 进 _handle, 由它判无按钮并休眠
+        sm.register("idle", detector=lambda _img: True, handler=self._handle)
 
     # ── Detectors (sync, fast template match) ────────────────────────
 
@@ -71,53 +74,82 @@ class DouDiZhuDouzeroStateRegistrar:
     # ── Handler (async, full pipeline) ───────────────────────────────
 
     async def _handle(self, image: bytes, context: GameContext) -> list[Action]:
-        """Common handler for all states: CV perceive → decide → execute."""
-        t0 = time.time()
+        """分层 handler: 先识别按钮(快), 按需再识别手牌(慢)。
 
-        # 1. CV Perception
+        策略(按钮优先, 层次递进):
+          - 一个按钮都没有 → 不在自己轮次(对手思考/动画/过渡帧): 休眠 0.5s, 不识别手牌
+          - 要不起/不出 → 直接 pass, 不识别手牌、不调 DeepAgent
+          - 叫牌/继续/开始游戏 → 点按钮即可, 不识别手牌
+          - 出牌(轮到我方) → 才全量识别手牌 + DeepAgent 决策
+        """
+        round_dir = self._round_dir(context)
+
+        # ── 第1层: 只识别按钮 + ui 标志(跳过手牌/对手/底牌) ──
+        try:
+            s1 = (await self._perception.recognize(image, buttons_only=True)).parsed
+        except Exception:
+            logger.exception("CV perception (buttons) failed")
+            return []
+        buttons = s1.get("buttons", [])
+        names = [b.get("text", "") for b in buttons]
+        logger.info("Buttons: %s", names)
+
+        # 无任何按钮 → 不在自己轮次: 休眠, 不识别手牌
+        if not buttons:
+            await asyncio.sleep(0.5)
+            self._save_debug(round_dir, image, s1, [])
+            return []
+
+        # 要不起 = 压不住上家(UI 判定), 直接 pass; 不识别手牌、不调 DouZero。
+        # 注意: 「不出」+「出牌」同时出现说明有牌能打过, 必须交给 DouZero 决策, 不能直接 pass。
+        if any("要不起" in n for n in names):
+            logger.info("[UI判定] 压不住 → 点要不起")
+            actions = self._decision._action_pass(s1)
+            self._save_debug(round_dir, image, s1, actions)
+            return actions
+
+        # 叫牌/结算/大厅: 固定策略, 点按钮即可, 不识别手牌
+        if any(k in n for n in names for k in ["叫地主", "不叫", "抢地主", "加倍", "不加倍"]):
+            actions = self._decision._decide_bidding(buttons)
+            logger.info("[固定策略] 叫牌 → %s", [a.description for a in actions])
+            self._save_debug(round_dir, image, s1, actions)
+            return actions
+        if any("继续" in n for n in names):
+            actions = self._decision._decide_settlement(buttons)
+            logger.info("[固定策略] 结算 → 点继续")
+            self._save_debug(round_dir, image, s1, actions)
+            return actions
+        if any("开始游戏" in n for n in names):
+            actions = self._decision._decide_lobby(buttons)
+            logger.info("[固定策略] 大厅 → 点开始游戏")
+            self._save_debug(round_dir, image, s1, actions)
+            return actions
+
+        # ── 第2层: 出牌(轮到我方, 有「出牌」按钮) → 全量识别手牌 + DouZero 决策 ──
+        # 到这里 buttons 一般是 ['出牌', '不出']: 有牌能打, 由 DouZero 决定出牌还是不出
+        logger.info("[DouZero] 出牌决策(全量识别手牌)")
         try:
             result = await self._perception.recognize(image)
         except Exception:
-            logger.exception("CV perception failed")
+            logger.exception("CV perception (full) failed")
             return []
-
         state = result.parsed
-        latency = (time.time() - t0) * 1000
-        phase = state.get("phase", "unknown")
-        n_cards = len(state.get("my_hand", []))
-        n_buttons = len(state.get("buttons", []))
-        logger.info("Perception: %.0fms, phase=%s, cards=%d, buttons=%d",
-                     latency, phase, n_cards, n_buttons)
+        # 识别结果先落盘: 决策(DouZero)即便崩溃, 识别也保留供复盘
+        self._save_debug(round_dir, image, state, None)
 
-        # 2. Save debug output
-        round_dir = self._round_dir(context)
-        self._save_debug(round_dir, image, state)
-
-        # 3. Auto-initialize round on first playing frame
-        if phase == "playing" and not self._decision._round_initialized:
+        if not self._decision._round_initialized:
             self._auto_init_round(state)
-
-        # 4. Decision
         actions = self._decision.decide(state)
-
-        # 5. Check game over
         if self._decision.is_round_over:
-            winner = self._decision.winner
-            logger.info("Round %d over, winner: %s", context.round_num, winner)
+            logger.info("Round %d over, winner: %s", context.round_num, self._decision.winner)
             self._decision.reset()
-
-        # 6. Save click visualization + decision detail
+        # 决策后再补存 actions(覆盖上面写入的空 actions)
         if actions:
-            annotated = annotate_actions(image, actions)
-            (round_dir / "actions.png").write_bytes(annotated)
+            (round_dir / "actions.png").write_bytes(annotate_actions(image, actions))
         (round_dir / "actions.json").write_text(
-            json.dumps(
-                [{"step": i + 1, "type": a.type, "x": a.x1, "y": a.y1,
-                  "description": a.description} for i, a in enumerate(actions)],
-                ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
+            json.dumps([{"step": i + 1, "type": a.type, "x": a.x1, "y": a.y1,
+                         "description": a.description} for i, a in enumerate(actions)],
+                       ensure_ascii=False, indent=2), encoding="utf-8")
         return actions
 
     def _auto_init_round(self, perception: dict) -> None:
@@ -151,11 +183,18 @@ class DouDiZhuDouzeroStateRegistrar:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _save_debug(self, round_dir: Path, image: bytes, state: dict) -> None:
-        """Save perception JSON + annotated image."""
+    def _save_debug(self, round_dir: Path, image: bytes, state: dict,
+                    actions: list[Action] | None = None) -> None:
+        """Save perception JSON + annotated image + actions(若有)。"""
         (round_dir / "perception.json").write_text(
             json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         if state:
-            annotated = annotate_perception(image, state)
-            (round_dir / "perception.png").write_bytes(annotated)
+            (round_dir / "perception.png").write_bytes(annotate_perception(image, state))
+        acts = actions or []
+        if acts:
+            (round_dir / "actions.png").write_bytes(annotate_actions(image, acts))
+        (round_dir / "actions.json").write_text(
+            json.dumps([{"step": i + 1, "type": a.type, "x": a.x1, "y": a.y1,
+                         "description": a.description} for i, a in enumerate(acts)],
+                       ensure_ascii=False, indent=2), encoding="utf-8")

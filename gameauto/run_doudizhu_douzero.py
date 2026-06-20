@@ -39,6 +39,9 @@ from gameauto.skills.doudizhu_douzero.decision import DouzeroDecision
 from gameauto.skills.doudizhu_douzero.skill import DouDiZhuDouzeroSkill
 from gameauto.utils.logging import setup_logging
 
+# ── 直接在这里配置(无需 CLI / 环境变量) ─────────────────────────────
+ROUNDS = 100   # 打几局; 设为 0 则回退到 环境变量 ROUNDS 或 config.yaml 的 max_rounds
+
 
 async def main():
     # ── Step 0: Parse CLI ────────────────────────────────────────────
@@ -49,7 +52,7 @@ async def main():
     # ── Step 1: Load config ───────────────────────────────────────────
     global_cfg = load_global_config(args.config)
     game_cfg = load_game_config("doudizhu_douzero")
-    rounds = int(os.environ.get("ROUNDS", game_cfg.get("max_rounds", 20)))
+    rounds = ROUNDS if ROUNDS else int(os.environ.get("ROUNDS", game_cfg.get("max_rounds", 20)))
 
     # ── Step 2: Setup logging & session ───────────────────────────────
     session = SessionManager(base_dir=Path(__file__).parent / "logs")

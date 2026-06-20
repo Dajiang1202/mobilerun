@@ -33,6 +33,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from gameauto.core.perception.cv.template_match import TemplateMatchTask
+from gameauto.skills.doudizhu_douzero.perception import _strip_color
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "skills" / "doudizhu_douzero" / "assets" / "templates"
 SCREEN_DIR = Path("D:/screenshots")
@@ -62,9 +63,9 @@ TASKS = [
 ]
 
 
-def load_font(size: int = 22):
-    for p in ["C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf",
-              "C:/Windows/Fonts/arial.ttf"]:
+def load_font(size: int = 26):
+    for p in ["C:/Windows/Fonts/msyhbd.ttc", "C:/Windows/Fonts/msyh.ttc",
+              "C:/Windows/Fonts/simhei.ttf"]:
         try:
             return ImageFont.truetype(p, size)
         except Exception:  # noqa: BLE001
@@ -139,8 +140,10 @@ async def annotate(img_path: Path, matchers: dict, thr_override: float):
                          "x": int(x), "y": int(y), "w": int(bw), "h": int(bh),
                          "scale": float(m["scale"])})
             draw.rectangle([x, y, x + bw, y + bh], outline=color, width=3)
-            tag = f"{m['template']}@{m['scale']:.2f}" if cat == "others" else m["template"]
-            draw.text((x + 2, max(0, y - 24)), f"{label}:{tag}", fill=color, font=font)
+            rank = _strip_color(m["template"])
+            tag = rank if rank else m["template"]   # 牌显点数, 按钮显原名
+            draw.text((x + 2, max(0, y - 26)), tag, fill=color, font=font,
+                      stroke_width=2, stroke_fill=(0, 0, 0))
         detail[label] = dets
 
     pil.save(str(OUT_DIR / (img_path.stem + "_viz.png")))
