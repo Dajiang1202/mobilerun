@@ -13,6 +13,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Any, Protocol
 
 from gameauto.core.perception.base import PerceptionResult
 from gameauto.core.perception.vlm_client import VlmClient
@@ -48,12 +49,10 @@ class XiangqiPerception:
             return PerceptionResult(raw_response=raw, parsed={})
 
         state = json.loads(json_str)
-        state = self._normalize(state)
         state = self._validate(state)
 
         screen_type = state.get("screen_type", "unknown")
-        grid = state.get("grid", [])
-        n_pieces = sum(1 for row in grid for c in row if c != "0") if grid else 0
+        n_pieces = len(state.get("pieces", []))
         n_buttons = len(state.get("buttons", []))
         logger.info("Screen: %s | Pieces: %d | Buttons: %d", screen_type, n_pieces, n_buttons)
 
@@ -70,41 +69,66 @@ class XiangqiPerception:
         return m.group(0) if m else None
 
     @staticmethod
-    def _normalize(state: dict) -> dict:
-        """标准化字段名（兼容新旧格式）。"""
-        # screen → screen_type
-        if "screen" in state and "screen_type" not in state:
-            state["screen_type"] = state.pop("screen")
-        # btns → buttons
-        if "btns" in state and "buttons" not in state:
-            state["buttons"] = state.pop("btns")
-        # board compact: {"l":60,"t":120,"r":940,"b":880} → {"left":60,...}
-        b = state.get("board", {})
-        if b and "l" in b:
-            state["board"] = {"left": b["l"], "top": b["t"], "right": b["r"], "bottom": b["b"]}
-        return state
-
-    @staticmethod
     def _validate(state: dict) -> dict:
-        """校验棋盘网格格式。"""
-        grid = state.get("grid", [])
-        if not grid:
+        """校验并修正 VLM 输出。"""
+        pieces = state.get("pieces", [])
+        if not pieces:
             return state
 
-        # 确保10行每行9字符
         valid = []
-        for row in grid[:10]:
-            row_str = str(row)[:9].ljust(9, "0")
-            valid.append(row_str)
-        while len(valid) < 10:
-            valid.append("0" * 9)
-        state["grid"] = valid
+        for p in pieces:
+            bp = p.get("board_pos", {})
+            pp = p.get("pixel_pos", {})
+            col = bp.get("col", 0)
+            row = bp.get("row", 0)
+            x = pp.get("x", 0)
+            y = pp.get("y", 0)
+            # 跳过无效棋子
+            if not (1 <= col <= 9 and 1 <= row <= 10):
+                continue
+            if x <= 0 and y <= 0:
+                continue
+            valid.append(p)
 
-        # 校验棋子数量（正常对局 2-32 子）
-        n = sum(1 for r in valid for c in r if c != "0")
-        if n < 2:
-            logger.warning("Too few pieces: %d", n)
-        elif n > 32:
-            logger.warning("Too many pieces: %d, truncating", n)
+        if len(valid) != len(pieces):
+            logger.warning("Filtered %d invalid pieces", len(pieces) - len(valid))
+            state["pieces"] = valid
 
         return state
+
+
+class XiangqiPerceptionLike(Protocol):
+    """VLM / template 等感知后端的统一接口。"""
+
+    async def recognize(self, image: bytes) -> PerceptionResult: ...
+
+
+def make_perception(
+    skill_dir: str,
+    game_cfg: dict,
+    vlm: VlmClient | None = None,
+) -> XiangqiPerceptionLike:
+    """按 config 选择感知后端: perception_method = vlm | template。
+
+    game_cfg: xiangqi skill 配置 dict (load_game_config("xiangqi"))。
+    vlm: method == "vlm" 时必需; template 时忽略。
+    """
+    method = str(game_cfg.get("perception_method", "vlm")).lower()
+    sd = Path(skill_dir)
+
+    if method == "template":
+        from gameauto.skills.xiangqi.perception_template import XiangqiTemplatePerception
+        tc = game_cfg.get("template", {}) or {}
+        return XiangqiTemplatePerception(
+            template_dir=str(sd / "assets" / "templates"),
+            board_json=str(sd / "assets" / "board.json"),
+            piece_confidence=tc.get("piece_confidence", 0.80),
+            button_confidence=tc.get("button_confidence", 0.85),
+            marker_confidence=tc.get("marker_confidence", 0.80),
+        )
+
+    # 默认 vlm
+    if vlm is None:
+        raise ValueError("vlm client required for perception_method=vlm")
+    prompt_path = sd / "prompts" / "xiangqi.jinja2"
+    return XiangqiPerception.from_prompt_file(vlm, str(prompt_path))

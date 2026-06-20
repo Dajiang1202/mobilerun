@@ -51,6 +51,9 @@ DEFAULT_SCREENS = Path("D:/screenshots")
 SCR_H = 820           # 右窗截图显示高度(宽度按宽高比);越大越便于框小角标
 ZOOM_PIX = 170        # 放大镜边长(显示像素)
 ZOOM_RADIUS = 26      # 放大镜在原图采样的半径(原图像素),≈ 看清 34x46 角标
+# 显示窗口自适应边界框: 横屏/竖屏都按宽高比缩放到不超出此框, 避免竖屏被压成窄条。
+MAX_DISP_W = 1200     # 显示宽度上限(像素)
+MAX_DISP_H = 980      # 显示高度上限(像素)
 
 # 方向键 keycode: 不同 OpenCV 后端返回值不同, 用集合兼容 + 字母键备用
 # Windows(WIN32): 左2424832 上2490368 右2555904 下2621440
@@ -124,12 +127,18 @@ def save_crop(crop_bgr: np.ndarray, out_dir: Path, cat: str, file: str) -> Path:
 
 class Cropper:
     def __init__(self, screens: list, checklist: list[dict], out_dir: Path,
-                 ref_dir: Path, roi_path: Path):
+                 ref_dir: Path, roi_path: Path,
+                 max_disp_w: int = MAX_DISP_W, max_disp_h: int = MAX_DISP_H,
+                 zoom_radius: int = ZOOM_RADIUS, win_name: str = "crop - screenshot"):
         self.screens = screens
         self.checklist = checklist
         self.out_dir = out_dir
         self.ref_dir = ref_dir
         self.roi_path = roi_path
+        self.max_disp_w = max_disp_w
+        self.max_disp_h = max_disp_h
+        self.zoom_radius = zoom_radius
+        self.win_name = win_name
 
         self.scr_idx = 0
         # 进度持久化: 已完成 = 扫描输出目录实际存在的 png; 跳过 = progress.json
@@ -202,11 +211,19 @@ class Cropper:
     def _set_screenshot(self):
         self.scr_orig = self.screens[self.scr_idx][1]
         h, w = self.scr_orig.shape[:2]
-        self.scale = SCR_H / h
-        self.disp_h = SCR_H
+        # 按宽高比缩放到不超出 max_disp_w × max_disp_h 的边界框,
+        # 横屏/竖屏都正确显示比例(不再固定高度把竖屏压成窄条)。
+        self.scale = min(self.max_disp_w / w, self.max_disp_h / h)
         self.disp_w = int(w * self.scale)
+        self.disp_h = int(h * self.scale)
         self.scr_disp = cv2.resize(self.scr_orig, (self.disp_w, self.disp_h),
                                    interpolation=cv2.INTER_AREA)
+        # 关键: WINDOW_NORMAL 会把图拉伸到窗口当前尺寸, 必须把窗口调到图的显示尺寸,
+        # 否则竖屏图塞进横屏窗口 → 比例失真。
+        try:
+            cv2.resizeWindow(self.win_name, self.disp_w, self.disp_h)
+        except Exception:  # noqa: BLE001
+            pass
         self.roi = None
 
     def _cur(self) -> dict:
@@ -297,8 +314,8 @@ class Cropper:
         ox = int(self.mx / self.scale)
         oy = int(self.my / self.scale)
         h, w = self.scr_orig.shape[:2]
-        x1, x2 = max(0, ox - ZOOM_RADIUS), min(w, ox + ZOOM_RADIUS)
-        y1, y2 = max(0, oy - ZOOM_RADIUS), min(h, oy + ZOOM_RADIUS)
+        x1, x2 = max(0, ox - self.zoom_radius), min(w, ox + self.zoom_radius)
+        y1, y2 = max(0, oy - self.zoom_radius), min(h, oy + self.zoom_radius)
         if x2 <= x1 or y2 <= y1:
             return
         patch = self.scr_orig[y1:y2, x1:x2]
@@ -330,7 +347,7 @@ class Cropper:
             cv2.rectangle(disp, (x1, y1), (x2, y2), (0, 0, 255), 2)
         # 放大镜
         self._draw_zoom(disp)
-        cv2.imshow("crop - screenshot", disp)
+        cv2.imshow(self.win_name, disp)
 
     def _draw_reference(self):
         """左窗: 当前项的原版参考模板(若存在), 3x 放大 + 完成标记。"""
@@ -372,14 +389,14 @@ class Cropper:
 
     # ── 主循环 ────────────────────────────────────────────────
     def run(self):
-        cv2.namedWindow("crop - screenshot", cv2.WINDOW_NORMAL)
-        cv2.setMouseCallback("crop - screenshot", self.mouse)
+        cv2.namedWindow(self.win_name, cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback(self.win_name, self.mouse)
         cv2.namedWindow("crop - reference", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("crop - reference", 320, 320)
 
         self._set_screenshot()
         self._print_progress()
-        print('提示: 按键前先点一下 "crop - screenshot" 窗口让它获得焦点')
+        print(f'提示: 按键前先点一下 "{self.win_name}" 窗口让它获得焦点')
         self._print_status()
         while True:
             self._draw()
