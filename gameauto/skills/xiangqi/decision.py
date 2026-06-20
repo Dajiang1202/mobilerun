@@ -16,20 +16,20 @@ from gameauto.skills.xiangqi.engine import Board, find_best_move_pikafish
 
 logger = logging.getLogger("gameauto.xiangqi.decision")
 
-# 操作间延迟
-_TAP_DELAY = Action(type="wait", duration_ms=300, description="Wait between taps")
-_MOVE_DELAY = Action(type="wait", duration_ms=3000, description="Wait after move")
+# 操作间延迟: 走子后等对手(~1s); 框架在动作步之间还会额外等动画。
+_MOVE_DELAY = Action(type="wait", duration_ms=1000, description="Wait for opponent move")
 
 
-def decide(state: dict, round_num: int) -> list[Action]:
+def decide(state: dict, round_num: int) -> tuple[list[Action], dict | None]:
     """统一决策入口。
 
     Args:
-        state: VLM 返回的解析后状态 dict
+        state: 感知返回的解析后状态 dict
         round_num: 当前回合数
 
     Returns:
-        Action 列表: [tap起点, wait, tap终点, wait] 或 [] (无需操作)
+        (actions, move): actions 为 Action 列表; move 为本回合走法
+        {"from":{col,row},"to":{col,row}} 或 None(非对局走子)。
     """
     screen_type = state.get("screen_type", "unknown")
     pieces = state.get("pieces", [])
@@ -45,38 +45,38 @@ def decide(state: dict, round_num: int) -> list[Action]:
             btn = _find_button(buttons, "开始游戏") or _find_button(buttons, "开始")
             logger.info("Menu: clicking '%s'", btn["text"])
             return [_make_tap(btn, "Click '开始游戏'"),
-                    Action(type="wait", duration_ms=10000, description="Wait for match")]
+                    Action(type="wait", duration_ms=10000, description="Wait for match")], None
         logger.info("Menu: no start button found")
-        return []
+        return [], None
 
     # ── 游戏结束 ──────────────────────────────────────────────────
+    # 注: 单局模式由 states.py 检测 game_over 后直接停止, 不走这里。
     if screen_type == "game_over":
-        if "再来一局" in button_texts:
-            btn = _find_button(buttons, "再来一局")
-            logger.info("Game over: clicking '%s'", btn["text"])
-            return [_make_tap(btn, "Click '再来一局'"),
-                    Action(type="wait", duration_ms=10000, description="Wait for new game")]
-        logger.info("Game over: no action")
-        return []
+        return [], None
 
     # ── 对局中 ────────────────────────────────────────────────────
-    grid = state.get("grid", [])
-    if screen_type != "playing" or not grid:
-        return []
+    if screen_type != "playing" or not pieces:
+        return [], None
+
+    # 判断红黑方（根据棋子数量或位置推断：己方在下方，即 row 较小的为红方）
+    red_pieces = [p for p in pieces if p.get("side") == "red"]
+    if not red_pieces:
+        logger.info("No red pieces found — likely opponent's turn or recognition issue")
+        return [], None
 
     side = "red"  # 默认红方（玩家在下方）
 
     # ── 构建棋盘 + 搜索最优走法 ───────────────────────────────────
     try:
-        board = Board.from_grid(grid, side_to_move=side)
+        board = Board.from_pieces(pieces, side_to_move=side)
     except Exception:
-        logger.exception("Failed to build board from grid")
-        return []
+        logger.exception("Failed to build board from pieces")
+        return [], None
 
     best = find_best_move_pikafish(board, side=side, movetime=2000)
     if best is None:
         logger.warning("No legal move found")
-        return []
+        return [], None
 
     notation = best["notation"]
     from_pos = best["from"]   # {"col": 2, "row": 8}
@@ -84,24 +84,31 @@ def decide(state: dict, round_num: int) -> list[Action]:
 
     logger.info("Best move: %s (from %s to %s)", notation, from_pos, to_pos)
 
-    # ── 从 board 边界计算像素坐标 ─────────────────────────────────
+    # ── 查找 pixel_pos（优先从 board 边界计算精确位置）─────────
     board_rect = state.get("board", {})
     from_pixel = _pixel_from_board(board_rect, from_pos["col"], from_pos["row"])
     to_pixel = _pixel_from_board(board_rect, to_pos["col"], to_pos["row"])
 
+    # Fallback: 从 pixel_pos 查找
+    if from_pixel is None:
+        from_pixel = _find_pixel(pieces, from_pos["col"], from_pos["row"])
+    if to_pixel is None:
+        to_pixel = _find_pixel(pieces, to_pos["col"], to_pos["row"])
+
     if from_pixel is None or to_pixel is None:
         logger.error("Cannot find pixel_pos for move: from=%s to=%s", from_pos, to_pos)
-        return []
+        return [], None
 
     logger.info("Tap: (%d,%d) → (%d,%d)", from_pixel[0], from_pixel[1],
                  to_pixel[0], to_pixel[1])
 
-    return [
+    actions = [
         _make_tap_pixel(from_pixel[0], from_pixel[1], f"Select piece at {from_pos['col']},{from_pos['row']}"),
-        _TAP_DELAY,
         _make_tap_pixel(to_pixel[0], to_pixel[1], f"{notation} → target {to_pos['col']},{to_pos['row']}"),
         _MOVE_DELAY,
     ]
+    move = {"from": from_pos, "to": to_pos}
+    return actions, move
 
 
 def _pixel_from_board(board: dict, col: int, row: int) -> tuple[int, int] | None:

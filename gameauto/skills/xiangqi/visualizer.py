@@ -66,43 +66,12 @@ def annotate_board_state(screenshot_bytes: bytes, state: dict) -> bytes:
     small_font = _load_font(12)
 
     board = state.get("board", {})
-    grid = state.get("grid", [])
-    pieces = state.get("pieces", [])  # 兼容旧格式
-
-    # 从 grid 建立已占位集合
+    pieces = state.get("pieces", [])
+    # 建立已占位集合
     occupied = set()
-    _CHAR_MAP_VIS = {
-        "R": 10, "N": 9, "B": 8, "A": 7, "K": 6, "C": 5, "P": 4,
-        "r": -10, "n": -9, "b": -8, "a": -7, "k": -6, "c": -5, "p": -4,
-    }
-    _PIECE_VIS_NAMES = {6: "帥", 7: "仕", 8: "相", 9: "馬", 10: "車", 5: "炮", 4: "兵",
-                        -6: "将", -7: "士", -8: "象", -9: "馬", -10: "車", -5: "炮", -4: "卒"}
-
-    # 从 grid 构建棋子列表用于可视化
-    vis_pieces = []
-    if grid and not pieces:
-        for row_idx, row_str in enumerate(grid[:10]):
-            for col_idx, ch in enumerate(row_str[:9]):
-                if ch in _CHAR_MAP_VIS:
-                    val = _CHAR_MAP_VIS[ch]
-                    occupied.add((col_idx + 1, 10 - row_idx))
-                    # 计算像素位置
-                    b = board or {"left": 0, "top": 0, "right": 1000, "bottom": 1000}
-                    cell_w = (b.get("right", 1000) - b.get("left", 0)) / 8
-                    cell_h = (b.get("bottom", 1000) - b.get("top", 0)) / 9
-                    px = int(b.get("left", 0) + col_idx * cell_w)
-                    py = int(b.get("bottom", 1000) - (9 - row_idx) * cell_h)
-                    vis_pieces.append({
-                        "piece": _PIECE_VIS_NAMES.get(val, "?"),
-                        "side": "red" if val > 0 else "black",
-                        "board_pos": {"col": col_idx + 1, "row": 10 - row_idx},
-                        "pixel_pos": {"x": px, "y": py},
-                    })
-        pieces = vis_pieces
-    elif pieces:
-        for p in pieces:
-            bp = p.get("board_pos", {})
-            occupied.add((bp.get("col", 0), bp.get("row", 0)))
+    for p in pieces:
+        bp = p.get("board_pos", {})
+        occupied.add((bp.get("col", 0), bp.get("row", 0)))
 
     # ── Board grid ────────────────────────────────────────────────
     if board:

@@ -75,7 +75,10 @@ async def process_one(vlm: VlmClient, perception: XiangqiPerception,
         print(f"    ... and {len(pieces)-10} more")
 
     # ── 感知可视化 ────────────────────────────────────────────────
-    if pieces:
+    # 感知可视化（用 grid 判断是否有棋子）
+    grid = state.get("grid", [])
+    has_pieces = grid and any(c != "0" for row in grid for c in row)
+    if has_pieces or pieces:
         png = annotate_board_state(screenshot, state)
         (shot_dir / "perception.png").write_bytes(png)
         print(f"  → perception.png")
@@ -83,12 +86,15 @@ async def process_one(vlm: VlmClient, perception: XiangqiPerception,
     # ── 引擎决策 ──────────────────────────────────────────────────
     move_result = None
     actions = []
-    if screen_type == "playing" and pieces:
+    if screen_type == "playing" and (has_pieces or pieces):
         actions = decide(state, round_num=idx)
 
         # 同时直接用引擎算一遍（展示记谱）
         try:
-            board = Board.from_pieces(pieces)
+            if grid:
+                board = Board.from_grid(grid)
+            else:
+                board = Board.from_pieces(pieces)
             move_result = find_best_move_pikafish(board, side="red")
         except Exception as e:
             print(f"  Engine error: {e}")
@@ -139,6 +145,8 @@ async def main():
     parser = argparse.ArgumentParser(description="Test Xiangqi VLM perception + decision")
     parser.add_argument("--dir", type=str, help="Screenshot directory")
     parser.add_argument("--output", type=str, help="Output directory")
+    parser.add_argument("--model", type=str, help="VLM model override")
+    parser.add_argument("--thinking", action="store_true", help="Enable VLM thinking mode")
     args = parser.parse_args()
 
     input_dir = Path(args.dir) if args.dir else DEFAULT_INPUT
@@ -163,14 +171,16 @@ async def main():
     # ── Init VLM ───────────────────────────────────────────────────
     global_cfg = load_global_config()
     vlm_cfg = global_cfg.get("vlm", {})
-    print(f"VLM: {vlm_cfg.get('model')} @ {vlm_cfg.get('base_url')}")
+    model = args.model or vlm_cfg.get("model", "qwen3-vl-flash")
+    thinking = args.thinking
+    print(f"VLM: {model} @ {vlm_cfg.get('base_url')}  thinking={thinking}")
 
     vlm = VlmClient(
-        model=vlm_cfg.get("model", "qwen3-vl-flash"),
+        model=model,
         base_url=vlm_cfg.get("base_url", ""),
         api_key=vlm_cfg.get("api_key", ""),
+        enable_thinking=thinking,
     )
-    print(f"  enable_thinking: {vlm._enable_thinking}")
 
     prompt_path = Path(__file__).parent.parent / "skills" / "xiangqi" / "prompts" / "xiangqi.jinja2"
     if not prompt_path.exists():

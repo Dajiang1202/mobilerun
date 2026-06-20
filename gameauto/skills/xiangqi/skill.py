@@ -9,14 +9,14 @@
 from __future__ import annotations
 
 from gameauto.core.orchestration.state_machine import StateMachine
-from gameauto.skills.xiangqi.perception import XiangqiPerception
+from gameauto.skills.xiangqi.perception import XiangqiPerceptionLike
 from gameauto.skills.xiangqi.states import XiangqiStateRegistrar
 
 
 class XiangqiSkill:
     """天天象棋 Skill 插件。"""
 
-    def __init__(self, perception: XiangqiPerception) -> None:
+    def __init__(self, perception: XiangqiPerceptionLike) -> None:
         self.perception = perception
         self._registrar = XiangqiStateRegistrar(perception)
 

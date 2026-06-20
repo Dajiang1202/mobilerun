@@ -12,7 +12,7 @@ from gameauto.core.orchestration.base import Action, GameState
 from gameauto.core.orchestration.context import GameContext
 from gameauto.core.orchestration.state_machine import StateMachine
 from gameauto.skills.xiangqi.decision import decide
-from gameauto.skills.xiangqi.perception import XiangqiPerception
+from gameauto.skills.xiangqi.perception import XiangqiPerceptionLike
 from gameauto.skills.xiangqi.visualizer import annotate_board_state, annotate_move
 
 logger = logging.getLogger("gameauto.xiangqi")
@@ -23,8 +23,10 @@ PLAYING = GameState.PLAYING
 class XiangqiStateRegistrar:
     """向状态机注册天天象棋的游戏状态。"""
 
-    def __init__(self, perception: XiangqiPerception) -> None:
+    def __init__(self, perception: XiangqiPerceptionLike) -> None:
         self._perception = perception
+        # 防双走守卫: 我方走完后记录预期棋盘签名, 下一帧若仍一致 = 对手还没走 → 等待。
+        self._wait_sig: frozenset | None = None
 
     def register(self, sm: StateMachine) -> None:
         sm.register(PLAYING, detector=self._always, handler=self._handle)
@@ -57,11 +59,56 @@ class XiangqiStateRegistrar:
             context.max_rounds = context.round_num
             return []
 
+        # ── 单局模式: 检测到 game_over (再来一局界面) → 下完一局, 停 ──
+        if screen_type == "game_over":
+            logger.info("Game over detected — single game complete, stopping")
+            context.max_rounds = context.round_num
+            return []
+
+        # ── 防双走守卫: 等对手走子 ────────────────────────────────
+        # 我方(红)走完后存了预期棋盘签名; 若当前帧仍一致, 说明对手还没动 → 跳过等待,
+        # 避免在我方回合连走两手。签名变化(对手动了)才继续。
+        if screen_type == "playing" and self._wait_sig is not None:
+            cur_sig = self._board_sig(state.get("pieces", []))
+            if cur_sig == self._wait_sig:
+                logger.info("Waiting for opponent (board unchanged since our move)")
+                return []
+            logger.info("Opponent moved — our turn")
+            self._wait_sig = None
+
         # ── 决策 ──────────────────────────────────────────────────
-        actions = decide(state, context.round_num)
+        actions, move = decide(state, context.round_num)
         if actions:
+            # 对局走子: 记录我方走完后的预期棋盘签名, 供下一帧守卫判断对手是否已走
+            if screen_type == "playing" and move is not None:
+                self._wait_sig = self._post_move_sig(state.get("pieces", []), move)
             self._save_move_viz(round_dir, image, state, actions)
         return actions
+
+    @staticmethod
+    def _board_sig(pieces: list[dict]) -> frozenset:
+        """当前棋盘签名: (col, row, side)。用 side 而非字形, 抗识别抖动。"""
+        return frozenset(
+            (p["board_pos"]["col"], p["board_pos"]["row"], p.get("side"))
+            for p in pieces
+        )
+
+    @staticmethod
+    def _post_move_sig(pieces: list[dict], move: dict) -> frozenset:
+        """把走法应用到当前棋子集, 得到我方走完后的预期棋盘签名。
+
+        用于下一帧判断对手是否已动: 走子→移动棋子到目标格(吃子则覆盖);
+        对手若没动, 真实棋盘签名应与此一致。
+        """
+        occ = {
+            (p["board_pos"]["col"], p["board_pos"]["row"]): p.get("side")
+            for p in pieces
+        }
+        f = (move["from"]["col"], move["from"]["row"])
+        t = (move["to"]["col"], move["to"]["row"])
+        if f in occ:
+            occ[t] = occ.pop(f)  # 我方棋子移到目标格, 覆盖被吃棋子
+        return frozenset((c, r, s) for (c, r), s in occ.items())
 
     def _round_dir(self, context: GameContext) -> Path:
         d = context.session_dir / f"round_{context.round_num:03d}"

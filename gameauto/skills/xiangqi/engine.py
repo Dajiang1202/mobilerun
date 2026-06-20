@@ -101,28 +101,6 @@ class Board:
         self.side_to_move = 1  # 1=红方, -1=黑方
 
     @classmethod
-    def from_grid(cls, grid: list[str], side_to_move: str = "red") -> "Board":
-        """从 VLM 紧凑网格格式构建棋盘。
-
-        grid: 10个字符串，每串9字符。大写=红，小写=黑。
-              R=车 N=马 B=象 A=士 K=将 C=炮 P=兵
-              row 0 = 黑方底线(top), row 9 = 红方底线(bottom)
-        """
-        board = cls()
-        board.side_to_move = 1 if side_to_move == "red" else -1
-        _CHAR_MAP = {
-            # Red (uppercase)
-            "R": 10, "N": 9, "B": 8, "A": 7, "K": 6, "C": 5, "P": 4,
-            # Black (lowercase)
-            "r": -10, "n": -9, "b": -8, "a": -7, "k": -6, "c": -5, "p": -4,
-        }
-        for row_idx, row_str in enumerate(grid[:10]):
-            for col_idx, ch in enumerate(row_str[:9]):
-                if ch in _CHAR_MAP:
-                    board.grid[row_idx][col_idx] = _CHAR_MAP[ch]
-        return board
-
-    @classmethod
     def from_pieces(cls, pieces: list[dict], side_to_move: str = "red") -> "Board":
         """从 VLM 返回的 pieces 列表构建棋盘。
 
@@ -752,56 +730,96 @@ def _piece_to_fen(val: int) -> str:
 import subprocess
 import os
 import threading
+import time
 
 
 class PikafishEngine:
     """Pikafish UCI 象棋引擎封装（每次搜索启动独立进程，兼容 Windows 管道）。"""
 
-    def __init__(self, exe_path: str, threads: int = 1, hash_mb: int = 64) -> None:
+    def __init__(self, exe_path: str, threads: int = 4, hash_mb: int = 256) -> None:
         self._exe = exe_path
         self._threads = threads
         self._hash = hash_mb
         self._exe_dir = os.path.dirname(os.path.abspath(exe_path))
 
     def search(self, board: Board, movetime: int = 3000) -> dict | None:
-        """启动 Pikafish → 发送 UCI + position + go → 读取 bestmove → 退出。"""
-        fen = board.to_fen()
-        cmds = (
-            "uci\n"
-            "setoption name Threads value %d\n"
-            "setoption name Hash value %d\n"
-            "position fen %s\n"
-            "go movetime %d\n"
-        ) % (self._threads, self._hash, fen, movetime)
+        """启动 Pikafish → 发送 UCI + position + go → 逐行读到 bestmove → 退出。
 
+        关键: 不能用 communicate(input=...)。它发送完即关闭 stdin, Pikafish 读到
+        EOF 会立刻中止搜索、吐默认走法(实测秒回垃圾 a3a4, 零搜索)。必须保持 stdin
+        打开, 边读 stdout 边等 bestmove, 拿到后再 quit。
+        """
+        fen = board.to_fen()
         try:
             proc = subprocess.Popen(
                 [self._exe], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, cwd=self._exe_dir,
             )
-            stdout, _ = proc.communicate(input=cmds.encode(),
-                                         timeout=movetime / 1000.0 + 15)
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            return None
         except Exception:
             return None
 
-        for line in stdout.decode(errors="replace").splitlines():
-            if line.startswith("bestmove"):
-                parts = line.strip().split()
-                if len(parts) >= 2 and parts[1] != "(none)":
-                    return self._parse_uci_move(board, parts[1])
-        return None
+        cmds = (
+            "uci\n"
+            "isready\n"
+            "setoption name Threads value %d\n"
+            "setoption name Hash value %d\n"
+            "position fen %s\n"
+            "go movetime %d\n"
+        ) % (self._threads, self._hash, fen, movetime)
+        try:
+            proc.stdin.write(cmds.encode())
+            proc.stdin.flush()
+        except Exception:
+            proc.kill()
+            return None
+
+        deadline = time.monotonic() + movetime / 1000.0 + 15
+        bestmove: str | None = None
+        try:
+            while time.monotonic() < deadline:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                line = line.decode(errors="replace").strip()
+                if line.startswith("bestmove"):
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1] != "(none)":
+                        bestmove = parts[1]
+                    break
+        except Exception:
+            pass
+        finally:
+            try:
+                proc.stdin.write(b"quit\n")
+                proc.stdin.flush()
+            except Exception:
+                pass
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+        if not bestmove:
+            return None
+        return self._parse_uci_move(board, bestmove)
 
     @staticmethod
     def _parse_uci_move(board: Board, uci: str) -> dict | None:
-        """解析 UCI 走法 (如 'h2e2')。"""
+        """解析 UCI 走法 (如 'h2e2')。
+
+        Pikafish UCI 列 a-i = grid col 0-8(左→右, 不翻转);
+        但 rank 数字从红方底线数起(rank0=红底=grid[9]), 而 grid[0]=黑顶,
+        故 grid_row = 9 - uci_rank。之前误把 uci_rank 直接当 grid 行号,
+        导致走子整盘上下镜像、落子到错误棋子。
+        """
         if len(uci) < 4:
             return None
-        fc = ord(uci[0]) - ord('a'); fr = int(uci[1])
-        tc = ord(uci[2]) - ord('a'); tr = int(uci[3])
+        fc = ord(uci[0]) - ord('a'); fr = 9 - int(uci[1])
+        tc = ord(uci[2]) - ord('a'); tr = 9 - int(uci[3])
         if not (0 <= fc < 9 and 0 <= fr <= 9 and 0 <= tc < 9 and 0 <= tr <= 9):
             return None
         piece = board.grid[fr][fc]

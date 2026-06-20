@@ -28,7 +28,7 @@ from gameauto.core.orchestration.loop import GameLoop
 from gameauto.core.perception.vlm_client import VlmClient
 from gameauto.core.recorder.data_recorder import DataRecorder
 from gameauto.core.recorder.session import SessionManager
-from gameauto.skills.xiangqi.perception import XiangqiPerception
+from gameauto.skills.xiangqi.perception import make_perception
 from gameauto.skills.xiangqi.skill import XiangqiSkill
 from gameauto.utils.logging import setup_logging
 
@@ -40,16 +40,17 @@ async def main():
 
     # ── Config ──────────────────────────────────────────────────────
     global_cfg = load_global_config(args.config)
+    game_cfg = load_game_config("xiangqi")
+    rounds = int(os.environ.get("ROUNDS", game_cfg.get("rounds", 50)))
+    perception_method = str(game_cfg.get("perception_method", "vlm")).lower()
+
     vlm_cfg = global_cfg.get("vlm", {})
-    if not vlm_cfg.get("api_key") and not vlm_cfg.get("base_url"):
+    if perception_method == "vlm" and not vlm_cfg.get("api_key") and not vlm_cfg.get("base_url"):
         print("=" * 60)
         print("  VLM not configured!")
         print(f"  Edit: {Path.home()}/.gameauto/settings.yaml")
         print("=" * 60)
         sys.exit(1)
-
-    game_cfg = load_game_config("xiangqi")
-    rounds = int(os.environ.get("ROUNDS", game_cfg.get("rounds", 50)))
 
     # ── Logging & Session ───────────────────────────────────────────
     session = SessionManager(base_dir=Path(__file__).parent / "logs")
@@ -73,15 +74,21 @@ async def main():
     input_device.set_input_resolution(capture_w, capture_h)
     logger.info("Device: %dx%d", capture_w, capture_h)
 
-    # ── VLM ─────────────────────────────────────────────────────────
-    vlm = VlmClient(
-        model=vlm_cfg.get("model", "qwen3-vl-flash"),
-        base_url=vlm_cfg.get("base_url", ""),
-        api_key=vlm_cfg.get("api_key", ""),
+    # ── Perception (vlm | template) ─────────────────────────────────
+    vlm = None
+    if perception_method == "vlm":
+        vlm = VlmClient(
+            model=vlm_cfg.get("model", "qwen3-vl-flash"),
+            base_url=vlm_cfg.get("base_url", ""),
+            api_key=vlm_cfg.get("api_key", ""),
+        )
+    skill_dir = Path(__file__).parent / "skills" / "xiangqi"
+    perception = make_perception(
+        skill_dir=str(skill_dir),
+        game_cfg=game_cfg,
+        vlm=vlm,
     )
-    prompt_path = Path(__file__).parent / "skills" / "xiangqi" / "prompts" / "xiangqi.jinja2"
-    perception = XiangqiPerception.from_prompt_file(vlm, str(prompt_path))
-    logger.info("VLM: %s | Prompt: %s", vlm_cfg.get("model"), prompt_path)
+    logger.info("Perception method: %s", perception_method)
 
     # ── Skill + State Machine ───────────────────────────────────────
     skill = XiangqiSkill(perception)
