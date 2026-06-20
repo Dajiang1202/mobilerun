@@ -195,6 +195,11 @@ class DouzeroDecision:
     # Phase handlers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _wait(ms: int) -> Action:
+        """生成 wait 动作(等发牌/出牌动画), 期间不截图不识别, 省轮次和算力。"""
+        return Action(type="wait", duration_ms=ms, description=f"等待{ms // 1000}s(动画)")
+
     def _decide_lobby(self, buttons: list[dict]) -> list[Action]:
         """大厅: 点击「开始游戏」进入对局。"""
         for btn in buttons:
@@ -205,7 +210,8 @@ class DouzeroDecision:
                         x1=btn["x"],
                         y1=btn["y"],
                         description="点击「开始游戏」",
-                    )
+                    ),
+                    self._wait(5000),   # 发牌动画, 5s 内无需操作
                 ]
         logger.warning("No '开始游戏' button found in lobby")
         return []
@@ -223,7 +229,8 @@ class DouzeroDecision:
                             x1=btn["x"],
                             y1=btn["y"],
                             description=f"点击「{text}」",
-                        )
+                        ),
+                        self._wait(3000),   # 叫牌后等动画/下家
                     ]
         logger.warning("No recognized bidding button found among: %s",
                        [b.get("text") for b in buttons])
@@ -239,24 +246,37 @@ class DouzeroDecision:
                         x1=btn["x"],
                         y1=btn["y"],
                         description="点击「继续」",
-                    )
+                    ),
+                    self._wait(3000),   # 进入下一局, 等加载
                 ]
         logger.warning("No '继续' button found in settlement")
         return []
 
     def _decide_playing(self, perception: dict) -> list[Action]:
         """Playing phase: use DeepAgent to decide optimal play."""
+        # 游戏显示「要不起」= 当前压不住对手的牌, 直接 pass。
+        # 以 UI 为准, 不依赖 env 状态(env 靠逐帧 perception 推进, 一旦漏识别
+        # 对手出牌就会偏离, 误判成「自由出牌」而乱出更小的牌)。
+        button_names = [b.get("text", "") for b in perception.get("buttons", [])]
+        if any("要不起" in n for n in button_names):
+            logger.info("对手牌压不住(UI 显示要不起), 直接 pass")
+            return self._action_pass(perception)
+
         if self._env is None:
             logger.error("Game not initialized — call init_round() first")
             return []
 
-        acting_pos = self._env._acting_player_position
+        # 方案A: 每帧用屏幕 last_move 校准 env(纠正跨帧漂移), 再让 DeepAgent 决策。
+        # 校准把 acting 拉回我方, 不再走 _handle_opponent_turn 逐帧推进(那是漂移根源)。
+        try:
+            self._calibrate_env(perception)
+        except Exception:
+            logger.exception("env calibration failed")
+        if self._env._acting_player_position != self._my_position:
+            logger.warning("校准后 acting 仍非我方, fallback pass")
+            return self._fallback_pass(perception)
 
-        if acting_pos != self._my_position:
-            # ---- Opponent's turn: record their move from perception ----
-            return self._handle_opponent_turn(acting_pos, perception)
-
-        # ---- Our turn: query DeepAgent ----
+        # DeepAgent(我方)
         try:
             agent = self._get_agent(self._my_position)
             infoset = self._env.infoset
@@ -281,15 +301,53 @@ class DouzeroDecision:
         if not action_cards:
             return self._action_pass(perception)
 
-        # Execute the play through the game engine
-        self._env.players[acting_pos].set_action(action_cards)
-        self._env._env.step()
-        self._env.infoset = self._env._game_infoset
-
+        # 单步模式: 不 step env(每帧重新校准), 直接选牌出牌
         return self._build_play_actions(action_cards, perception)
 
     # ------------------------------------------------------------------
-    # Opponent turn handling
+    # 方案A: 每帧用屏幕 last_move 校准 env, 纠正跨帧漂移
+    # ------------------------------------------------------------------
+    _ORDER = ("landlord", "landlord_down", "landlord_up")  # 出牌顺序
+
+    def _prev_position(self) -> str:
+        """我前一位(上家, 对应屏幕 play_up 区)。"""
+        i = self._ORDER.index(self._my_position)
+        return self._ORDER[(i - 1) % 3]
+
+    def _calibrate_env(self, perception: dict) -> None:
+        """用屏幕 ground truth 校准 env: 要压的牌 + acting = 我方。
+
+        - 要压 = 上家(play_up)最近出牌; 上家 pass 则下家(play_down)
+        - 写入 env 最近一手(让 get_last_move / legal_actions 基于它)
+        - last_move_dict[上家] = 该牌
+        - acting_player_position = 我方(屏幕[出牌]=轮我)
+        """
+        if self._env is None or self._my_position is None:
+            return
+        last_up = perception.get("last_play_up", [])
+        last_down = perception.get("last_play_down", [])
+        calib = last_up if last_up else last_down
+        genv = self._env._env  # GameEnv
+        if calib:
+            env_cards = [RealCard2EnvCard[c] for c in calib if c in RealCard2EnvCard]
+            seq = genv.card_play_action_seq
+            if seq:
+                seq[-1] = env_cards
+            else:
+                seq.append(env_cards)
+            genv.last_move_dict[self._prev_position()] = env_cards
+        # 校准我方手牌为屏幕当前值(单步模式不 step, env 手牌可能还是开局全量)
+        my_hand = perception.get("my_hand", [])
+        if my_hand:
+            genv.info_sets[self._my_position].player_hand_cards = sorted(
+                RealCard2EnvCard[c] for c in my_hand if c in RealCard2EnvCard)
+        genv.acting_player_position = self._my_position
+        # 重算 legal_actions —— 否则 game_infoset 是旧字段, legal 还是基于开局 last_move 空
+        genv.game_infoset = genv.get_infoset()
+        self._env.infoset = self._env._game_infoset
+
+    # ------------------------------------------------------------------
+    # Opponent turn handling (方案A 下基本不用, 保留兜底)
     # ------------------------------------------------------------------
 
     def _handle_opponent_turn(
@@ -299,17 +357,20 @@ class DouzeroDecision:
         last_play = perception.get("last_play", [])
         is_pass = perception.get("is_pass", False)
 
-        if is_pass:
-            self._opponent_pass(acting_pos)
-        elif last_play:
-            self._opponent_play(acting_pos, last_play)
-        else:
-            # Ambiguous: no cards detected but also no pass marker.
-            # This can happen on the very first frame before the opponent
-            # has acted.  Do not update game state — wait for next frame.
-            return []
-
-        self._env.infoset = self._env._game_infoset
+        if not last_play and not is_pass:
+            return []  # 模糊帧: 既没牌也没 pass 标志, 不推进, 等下一帧
+        try:
+            # last_play 优先: 有牌就推进出牌(is_pass 可能误匹配, 牌更可信)
+            if last_play:
+                self._opponent_play(acting_pos, last_play)
+            else:
+                self._opponent_pass(acting_pos)
+            self._env.infoset = self._env._game_infoset
+        except Exception:
+            # env 状态偏离(轮次/手牌与屏幕脱节)致出牌校验 assert 失败,
+            # 重置 env 避免连锁崩溃; 下帧会重新 init。
+            logger.exception("对手出牌推进失败(env 状态偏离), 重置 env")
+            self.reset()
         return []  # No HDC actions to execute for opponent moves
 
     def _opponent_pass(self, position: str) -> None:
@@ -377,7 +438,7 @@ class DouzeroDecision:
                 [b.get("text") for b in buttons],
             )
 
-        return actions
+        return actions + [self._wait(3000)]   # 出牌后等动画/对手出牌
 
     def _action_pass(self, perception: dict) -> list[Action]:
         """Record a pass in game state and return tap on '不出' button."""
@@ -396,7 +457,8 @@ class DouzeroDecision:
                         x1=btn["x"],
                         y1=btn["y"],
                         description="点击「不出/要不起」",
-                    )
+                    ),
+                    self._wait(3000),   # 等对手出牌
                 ]
 
         logger.warning(

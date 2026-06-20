@@ -74,8 +74,8 @@ class DouDiZhuDouzeroPerception:
     # role 决定命中归入哪个字段
     TASKS = [
         ("hand",      "cards",   "hand",      [1.0],  0.88, None, "hand"),
-        ("play_up",   "others",  "play_up",   [1.0],  0.85, None, "others_play"),
-        ("play_down", "others",  "play_down", [1.0],  0.85, None, "others_play"),
+        ("play_up",   "others",  "play_up",   [1.0],  0.85, None, "others_play_up"),
+        ("play_down", "others",  "play_down", [1.0],  0.85, None, "others_play_down"),
         ("底牌",      "others",  "landlord3", [0.65], 0.80, None, "others_landlord"),
         ("buttons",   "buttons", "buttons",   [1.0],  0.88,
          ["叫地主", "不叫", "抢地主", "加倍", "不加倍", "出牌", "不出", "要不起"], "buttons"),
@@ -102,8 +102,12 @@ class DouDiZhuDouzeroPerception:
         logger.info("CV perception initialized: %d template sets loaded from %s",
                     len(self._matchers), self._template_dir)
 
-    async def recognize(self, image: bytes) -> PerceptionResult:
-        """分区并行匹配 → 颜色校验 → 结构化 perception dict。"""
+    async def recognize(self, image: bytes, buttons_only: bool = False) -> PerceptionResult:
+        """分区并行匹配 → 颜色校验 → 结构化 perception dict。
+
+        buttons_only=True 时只跑按钮 + ui 标志(landlord/pass), 跳过手牌/对手/底牌
+        (最耗时的 28+28 模板), 供「先看按钮、按需再识别手牌」的分层策略使用。
+        """
         t0 = time.perf_counter()
         img = cv2.imdecode(np.frombuffer(image, np.uint8), cv2.IMREAD_COLOR)
         if img is None:
@@ -118,6 +122,9 @@ class DouDiZhuDouzeroPerception:
             return (x1 / w, y1 / h, x2 / w, y2 / h)
 
         active = [t for t in self.TASKS if t[1] in self._matchers]
+        if buttons_only:
+            # 分层: 仅按钮 + ui 标志, 跳过手牌/对手/底牌
+            active = [t for t in active if t[6] in ("buttons", "landlord", "pass")]
         results = await asyncio.gather(*[
             self._matchers[sub].run(
                 image, roi=norm(rk),
@@ -127,7 +134,8 @@ class DouDiZhuDouzeroPerception:
         ])
 
         hand_m: list[dict] = []
-        play_m: list[dict] = []
+        play_up_m: list[dict] = []
+        play_down_m: list[dict] = []
         landlord3_m: list[dict] = []
         buttons: list[dict] = []
         is_pass = False
@@ -139,8 +147,10 @@ class DouDiZhuDouzeroPerception:
                     continue
                 if role == "hand":
                     hand_m.append(m)
-                elif role == "others_play":
-                    play_m.append(m)
+                elif role == "others_play_up":
+                    play_up_m.append(m)
+                elif role == "others_play_down":
+                    play_down_m.append(m)
                 elif role == "others_landlord":
                     landlord3_m.append(m)
                 elif role == "landlord":
@@ -156,8 +166,12 @@ class DouDiZhuDouzeroPerception:
                     })
 
         my_hand, card_positions = self._parse_card_matches(hand_m)
-        last_play, _ = self._parse_card_matches(play_m)
+        last_play_up, _ = self._parse_card_matches(play_up_m)
+        last_play_down, _ = self._parse_card_matches(play_down_m)
         landlord_cards, _ = self._parse_card_matches(landlord3_m)
+        # 要压的牌: 上家(play_up, 我前一位)非 pass 则压上家; 上家 pass 则压下家
+        # (绝不能把两区合并 —— 那会把两家各出的牌拼成非法牌型)
+        last_play = last_play_up if last_play_up else last_play_down
 
         button_names = [b["text"] for b in buttons]
         phase = "playing"
@@ -182,6 +196,8 @@ class DouDiZhuDouzeroPerception:
             "phase": phase,
             "my_hand": my_hand,
             "last_play": last_play,
+            "last_play_up": last_play_up,
+            "last_play_down": last_play_down,
             "landlord_cards": landlord_cards,
             "is_pass": is_pass,
             "is_landlord": is_landlord,
@@ -198,7 +214,11 @@ class DouDiZhuDouzeroPerception:
         """同步快路径: names 里任一按钮模板是否命中(供 states detector 用)。
 
         roi_key=None 表示全图搜(「继续」「开始游戏」等位置不固定的按钮);
-        否则按 PX[roi_key] 限定区域。阈值固定 0.88。
+        否则按 PX[roi_key] 限定区域。
+
+        阈值故意低于 recognize(0.78 vs 0.85/0.88):detector 只负责「是否路由到
+        该状态」, 应宽松不漏; 进状态后 handler 内的 recognize 会用精确阈值把关,
+        误路由的会因 recognize 无命中而返回空动作。
         """
         matcher = self._matchers.get("buttons")
         if matcher is None:
@@ -207,11 +227,12 @@ class DouDiZhuDouzeroPerception:
         if img is None:
             return False
         h, w = img.shape[:2]
-        roi = None
         if roi_key:
             x1, y1, x2, y2 = self.PX[roi_key]
             roi = (x1 / w, y1 / h, x2 / w, y2 / h)
-        return any(matcher._match_inline(image, roi, n, 0.88) for n in names)
+        else:
+            roi = (0.0, 0.0, 1.0, 1.0)   # 全图(_match_inline 不接受 None)
+        return any(matcher._match_inline(image, roi, n, 0.78) for n in names)
 
     @staticmethod
     def _parse_card_matches(
