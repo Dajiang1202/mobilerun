@@ -57,7 +57,11 @@ class TemplateMatchTask(BaseCVTask):
 
         for png_file in sorted(tpl_path.glob("*.png")):
             name = png_file.stem
-            img = cv2.imread(str(png_file), cv2.IMREAD_COLOR)
+            # 用 imdecode + np.fromfile 替代 cv2.imread, 兼容中文路径/文件名
+            # (cv2.imread 在 Windows 读中文路径/文件名会返回 None, 导致按钮模板
+            # 如 叫地主.png 加载失败)
+            data = np.fromfile(str(png_file), dtype=np.uint8)
+            img = cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
             if img is not None:
                 self._templates[name] = img
                 logger.debug("Loaded template: %s (%dx%d)", name, img.shape[1], img.shape[0])
