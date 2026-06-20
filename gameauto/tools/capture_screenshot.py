@@ -27,7 +27,7 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # 文件名
-    name = sys.argv[1] if len(sys.argv) > 1 else datetime.now().strftime("%H%M%S")
+    name = sys.argv[1] if len(sys.argv) > 1 else datetime.now().strftime("%Y%m%d_%H%M%S")
     local_path = OUT_DIR / f"{name}.jpeg"
 
     # 截图

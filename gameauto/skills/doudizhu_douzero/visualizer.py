@@ -19,11 +19,12 @@ def annotate_perception(image: bytes, perception: dict) -> bytes:
         img = Image.open(io.BytesIO(image))
         draw = ImageDraw.Draw(img)
 
-        # Draw card positions
+        # Draw card positions: {点数: [(x,y), ...]}(同点数多张)
         card_positions = perception.get("card_positions", {})
-        for name, (cx, cy) in card_positions.items():
-            draw.rectangle([cx - 15, cy - 20, cx + 15, cy + 20], outline="green", width=2)
-            draw.text((cx - 8, cy - 18), name, fill="green")
+        for name, plist in card_positions.items():
+            for cx, cy in plist:
+                draw.rectangle([cx - 15, cy - 20, cx + 15, cy + 20], outline="green", width=2)
+                draw.text((cx - 8, cy - 18), name, fill="green")
 
         # Draw buttons
         for btn in perception.get("buttons", []):

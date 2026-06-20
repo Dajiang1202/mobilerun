@@ -20,6 +20,7 @@ logger = logging.getLogger("gameauto.doudizhu_douzero")
 BIDDING = "bidding"
 PLAYING = "playing"
 SETTLEMENT = "settlement"
+LOBBY = "lobby"
 
 
 class DouDiZhuDouzeroStateRegistrar:
@@ -46,37 +47,26 @@ class DouDiZhuDouzeroStateRegistrar:
         self._decision = decision
 
     def register(self, sm: StateMachine) -> None:
-        # Register in priority order: settlement > bidding > playing > always
-        # Detector fallback: always match PLAYING to ensure we never stall
+        # 优先级: lobby > settlement > bidding > playing(playing 兜底)
+        sm.register(LOBBY, detector=self._detect_lobby, handler=self._handle)
         sm.register(SETTLEMENT, detector=self._detect_settlement, handler=self._handle)
         sm.register(BIDDING, detector=self._detect_bidding, handler=self._handle)
         sm.register(PLAYING, detector=self._detect_playing, handler=self._handle)
 
     # ── Detectors (sync, fast template match) ────────────────────────
 
+    def _detect_lobby(self, image: bytes) -> bool:
+        return self._perception.detect_any_button(image, ["开始游戏"], roi_key=None)
+
     def _detect_bidding(self, image: bytes) -> bool:
-        return self._match_any_button(image, ["叫地主", "不叫", "抢地主", "加倍", "不加倍"])
+        return self._perception.detect_any_button(
+            image, ["叫地主", "不叫", "抢地主", "加倍", "不加倍"])
 
     def _detect_playing(self, image: bytes) -> bool:
-        return self._match_any_button(image, ["出牌", "不出"])
+        return self._perception.detect_any_button(image, ["出牌", "不出", "要不起"])
 
     def _detect_settlement(self, image: bytes) -> bool:
-        return self._match_any_button(image, ["继续"])
-
-    def _match_any_button(self, image: bytes, button_names: list[str]) -> bool:
-        """Check if any of the given button templates match in the button ROI."""
-        matcher = self._perception._button_matcher
-        if matcher is None:
-            return False
-        for name in button_names:
-            if matcher._match_inline(
-                image,
-                roi=(0.55, 0.70, 1.0, 1.0),
-                template_name=name,
-                threshold=self._perception._button_confidence,
-            ):
-                return True
-        return False
+        return self._perception.detect_any_button(image, ["继续"], roi_key=None)
 
     # ── Handler (async, full pipeline) ───────────────────────────────
 
@@ -116,10 +106,17 @@ class DouDiZhuDouzeroStateRegistrar:
             logger.info("Round %d over, winner: %s", context.round_num, winner)
             self._decision.reset()
 
-        # 6. Save click visualization
+        # 6. Save click visualization + decision detail
         if actions:
             annotated = annotate_actions(image, actions)
             (round_dir / "actions.png").write_bytes(annotated)
+        (round_dir / "actions.json").write_text(
+            json.dumps(
+                [{"step": i + 1, "type": a.type, "x": a.x1, "y": a.y1,
+                  "description": a.description} for i, a in enumerate(actions)],
+                ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
         return actions
 

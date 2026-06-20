@@ -179,7 +179,9 @@ class DouzeroDecision:
         phase = perception.get("phase", "unknown")
         buttons = perception.get("buttons", [])
 
-        if phase == "bidding":
+        if phase == "lobby":
+            return self._decide_lobby(buttons)
+        elif phase == "bidding":
             return self._decide_bidding(buttons)
         elif phase == "settlement":
             return self._decide_settlement(buttons)
@@ -192,6 +194,21 @@ class DouzeroDecision:
     # ------------------------------------------------------------------
     # Phase handlers
     # ------------------------------------------------------------------
+
+    def _decide_lobby(self, buttons: list[dict]) -> list[Action]:
+        """大厅: 点击「开始游戏」进入对局。"""
+        for btn in buttons:
+            if "开始游戏" in btn.get("text", ""):
+                return [
+                    Action(
+                        type="tap",
+                        x1=btn["x"],
+                        y1=btn["y"],
+                        description="点击「开始游戏」",
+                    )
+                ]
+        logger.warning("No '开始游戏' button found in lobby")
+        return []
 
     def _decide_bidding(self, buttons: list[dict]) -> list[Action]:
         """Bidding phase: conservative strategy — 不叫, 不加倍."""
@@ -323,11 +340,15 @@ class DouzeroDecision:
         actions: list[Action] = []
         card_positions = perception.get("card_positions", {})
 
-        # Tap each card in the action set
+        # Tap each card in the action set.
+        # card_positions: {点数: [(x,y), ...]}(同点数多张按列排序);
+        # 消费式取位, 保证出对子/三带二时每张牌点不同位置。
+        remaining = {k: list(v) for k, v in card_positions.items()}
         for card in action_cards:
             card_name = EnvCard2RealCard.get(card, str(card))
-            pos = card_positions.get(card_name)
-            if pos:
+            slots = remaining.get(card_name)
+            if slots:
+                pos = slots.pop(0)
                 actions.append(
                     Action(
                         type="tap",
@@ -365,16 +386,16 @@ class DouzeroDecision:
             self._env._env.step()
             self._env.infoset = self._env._game_infoset
 
-        # Find and tap the "不出" button
+        # Find and tap the "不出" / "要不起" button (both = pass on this round)
         buttons = perception.get("buttons", [])
         for btn in buttons:
-            if "不出" in btn.get("text", ""):
+            if "不出" in btn.get("text", "") or "要不起" in btn.get("text", ""):
                 return [
                     Action(
                         type="tap",
                         x1=btn["x"],
                         y1=btn["y"],
-                        description="点击「不出」",
+                        description="点击「不出/要不起」",
                     )
                 ]
 
