@@ -6,6 +6,31 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont
 
+
+def format_board_matrix(pieces: list[dict]) -> str:
+    """把 pieces 渲染成 10×9 文本矩阵(黑方顶在上, 与屏幕方向一致), 供日志输出。
+
+    每格: 红方 "r{字}" / 黑方 "b{字}" / 空位 " · "。比打印整段 JSON 紧凑得多。
+    """
+    grid: dict[tuple[int, int], tuple[str, str]] = {}
+    for p in pieces:
+        bp = p.get("board_pos", {})
+        col, row = bp.get("col"), bp.get("row")
+        if col and row:
+            grid[(int(col), int(row))] = (str(p.get("piece", "?")), str(p.get("side", "?")))
+    lines = []
+    for r in range(10, 0, -1):  # row10(黑方顶) 在第一行
+        cells = []
+        for c in range(1, 10):
+            g = grid.get((c, r))
+            if g is None:
+                cells.append(" · ")
+            else:
+                s = "r" if g[1] == "red" else "b"
+                cells.append(f"{s}{g[0]}")
+        lines.append(" ".join(cells))
+    return "\n".join(lines)
+
 # Colors
 GRID_COLOR = (160, 120, 80, 150)
 RIVER_COLOR = (160, 120, 80, 100)
