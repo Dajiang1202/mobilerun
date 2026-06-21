@@ -100,6 +100,10 @@ async def main():
     capture_w, capture_h = capture.native_resolution
     input_device.set_input_resolution(capture_w, capture_h)
     logger.info("Device: %dx%d", capture_w, capture_h)
+    if use_scrcpy:
+        # jpype JVM 启动后会接管 SIGINT(覆盖 main 开头的 handler), 必须在 connect 之后
+        # 重新注册, 否则 Ctrl+C 进不了 Python、无法强制退出。
+        signal.signal(signal.SIGINT, lambda *_: os._exit(0))
 
     # ── Step 4: Setup perception (CV, NO VLM) ──────────────────────────
     skill_dir = Path(__file__).parent / "skills" / "doudizhu_douzero"
