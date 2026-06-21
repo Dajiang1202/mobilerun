@@ -68,6 +68,8 @@ class DouDiZhuDouzeroPerception:
         "play_up":   (700, 200, 1424, 600),
         "play_down": (1425, 200, 2100, 600),
         "buttons":   (500, 600, 2200, 800),
+        "continue":  (1899, 957, 2848, 1276),   # 继续(右1/3屏, 下1/4屏)
+        "ingame":    (2450, 1175, 2680, 1276),  # 游戏中独有小按钮
     }
 
     # (key, 子目录, ROI键|None, scales, 阈值, filter|None, role)
@@ -79,9 +81,10 @@ class DouDiZhuDouzeroPerception:
         ("底牌",      "others",  "landlord3", [0.65], 0.80, None, "others_landlord"),
         ("buttons",   "buttons", "buttons",   [1.0],  0.88,
          ["叫地主", "不叫", "抢地主", "加倍", "不加倍", "出牌", "不出", "要不起"], "buttons"),
-        ("继续",      "buttons", None,        [1.0],  0.85, ["继续"], "buttons"),
-        ("开始游戏",  "buttons", None,        [1.0],  0.85, ["开始游戏"], "buttons"),
+        ("继续",      "buttons", "continue",  [1.0],  0.85, ["继续"], "buttons"),
+        ("开始游戏",  "buttons", "buttons",   [1.0],  0.85, ["开始游戏"], "buttons"),
         ("地主标",    "ui",      None,        [1.0],  0.72, ["landlord_words"], "landlord"),
+        ("游戏中",    "ui",      "ingame",    [1.0],  0.85, ["ingame_marker"], "ingame"),
         ("不出上",    "ui",      "play_up",   [1.0],  0.85, ["pass"], "pass"),
         ("不出下",    "ui",      "play_down", [1.0],  0.85, ["pass"], "pass"),
     ]
@@ -95,6 +98,11 @@ class DouDiZhuDouzeroPerception:
     ) -> None:
         self._template_dir = Path(template_dir)
         self._matchers: dict[str, TemplateMatchTask] = {}
+        # landlord 标志 + 底牌一局固定: 首次锁定后跳过(底牌需 3 张才锁, 否则下帧重试)
+        self._landlord_locked = False
+        self._landlord_cards_locked = False
+        self._cached_is_landlord = False
+        self._cached_landlord_cards: list[str] = []
         for sub in ("cards", "others", "buttons", "ui"):
             d = self._template_dir / sub
             if d.is_dir():
@@ -122,9 +130,14 @@ class DouDiZhuDouzeroPerception:
             return (x1 / w, y1 / h, x2 / w, y2 / h)
 
         active = [t for t in self.TASKS if t[1] in self._matchers]
+        # 一局缓存: landlord/底牌锁定后跳过对应 task
+        if self._landlord_locked:
+            active = [t for t in active if t[6] != "landlord"]
+        if self._landlord_cards_locked:
+            active = [t for t in active if t[6] != "others_landlord"]
         if buttons_only:
-            # 分层: 仅按钮 + ui 标志, 跳过手牌/对手/底牌
-            active = [t for t in active if t[6] in ("buttons", "landlord", "pass")]
+            # 分层: 仅按钮 + ui 标志(含 ingame), 跳过手牌/对手/底牌
+            active = [t for t in active if t[6] in ("buttons", "landlord", "pass", "ingame")]
         results = await asyncio.gather(*[
             self._matchers[sub].run(
                 image, roi=norm(rk),
@@ -140,6 +153,7 @@ class DouDiZhuDouzeroPerception:
         buttons: list[dict] = []
         is_pass = False
         is_landlord = False
+        is_ingame = False
         for (_key, _sub, _rk, _sc, _thr, _fn, role), res in zip(active, results):
             for m in res.get("matches", []):
                 region = img[m["y"]:m["y"] + m["h"], m["x"]:m["x"] + m["w"]]
@@ -155,6 +169,8 @@ class DouDiZhuDouzeroPerception:
                     landlord3_m.append(m)
                 elif role == "landlord":
                     is_landlord = True
+                elif role == "ingame":
+                    is_ingame = True
                 elif role == "pass":
                     is_pass = True
                 elif role == "buttons":
@@ -169,6 +185,17 @@ class DouDiZhuDouzeroPerception:
         last_play_up, _ = self._parse_card_matches(play_up_m)
         last_play_down, _ = self._parse_card_matches(play_down_m)
         landlord_cards, _ = self._parse_card_matches(landlord3_m)
+        # 一局缓存: landlord 标志首次命中即锁; 底牌需 3 张才锁(否则下帧重试)
+        if self._landlord_locked:
+            is_landlord = self._cached_is_landlord
+        elif is_landlord:
+            self._landlord_locked = True
+            self._cached_is_landlord = True
+        if self._landlord_cards_locked:
+            landlord_cards = self._cached_landlord_cards
+        elif len(landlord_cards) == 3:
+            self._landlord_cards_locked = True
+            self._cached_landlord_cards = landlord_cards
         # 要压的牌: 上家(play_up, 我前一位)非 pass 则压上家; 上家 pass 则压下家
         # (绝不能把两区合并 —— 那会把两家各出的牌拼成非法牌型)
         last_play = last_play_up if last_play_up else last_play_down
@@ -201,6 +228,7 @@ class DouDiZhuDouzeroPerception:
             "landlord_cards": landlord_cards,
             "is_pass": is_pass,
             "is_landlord": is_landlord,
+            "is_ingame": is_ingame,
             "buttons": buttons_norm,
             "button_names": button_names,
             "card_positions": card_pos_norm,
@@ -233,6 +261,17 @@ class DouDiZhuDouzeroPerception:
         else:
             roi = (0.0, 0.0, 1.0, 1.0)   # 全图(_match_inline 不接受 None)
         return any(matcher._match_inline(image, roi, n, 0.78) for n in names)
+
+    def unlock_landmark(self) -> None:
+        """解锁 landlord 标志/底牌缓存(新一局开始时调用, 重新识别)。
+
+        landlord 标志和底牌每局不同(谁地主/3 张底牌), 点「继续」/「开始游戏」
+        进入新一局时必须解锁, 否则会沿用上局缓存。
+        """
+        self._landlord_locked = False
+        self._landlord_cards_locked = False
+        self._cached_is_landlord = False
+        self._cached_landlord_cards = []
 
     @staticmethod
     def _parse_card_matches(

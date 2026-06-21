@@ -48,11 +48,12 @@ class DouDiZhuDouzeroStateRegistrar:
         self._decision = decision
 
     def register(self, sm: StateMachine) -> None:
-        # 优先级: lobby > settlement > bidding > playing(playing 兜底)
-        sm.register(LOBBY, detector=self._detect_lobby, handler=self._handle)
-        sm.register(SETTLEMENT, detector=self._detect_settlement, handler=self._handle)
-        sm.register(BIDDING, detector=self._detect_bidding, handler=self._handle)
+        # 优先级: playing/bidding(buttons ROI 快)优先, 全图导航(lobby/settlement)靠后。
+        # 这样轮我方/叫牌帧(最常见)直接命中 buttons ROI, 不查全图; 仅 idle/结算/大厅帧才全图。
         sm.register(PLAYING, detector=self._detect_playing, handler=self._handle)
+        sm.register(BIDDING, detector=self._detect_bidding, handler=self._handle)
+        sm.register(SETTLEMENT, detector=self._detect_settlement, handler=self._handle)
+        sm.register(LOBBY, detector=self._detect_lobby, handler=self._handle)
         # 兜底: 以上都不命中(无按钮/对手思考/过渡帧) → 进 _handle, 由它判无按钮并休眠
         sm.register("idle", detector=lambda _img: True, handler=self._handle)
 
@@ -117,11 +118,13 @@ class DouDiZhuDouzeroStateRegistrar:
         if any("继续" in n for n in names):
             actions = self._decision._decide_settlement(buttons)
             logger.info("[固定策略] 结算 → 点继续")
+            self._perception.unlock_landmark()  # 新一局, 重新识别 landlord/底牌
             self._save_debug(round_dir, image, s1, actions)
             return actions
         if any("开始游戏" in n for n in names):
             actions = self._decision._decide_lobby(buttons)
             logger.info("[固定策略] 大厅 → 点开始游戏")
+            self._perception.unlock_landmark()  # 新一局
             self._save_debug(round_dir, image, s1, actions)
             return actions
 

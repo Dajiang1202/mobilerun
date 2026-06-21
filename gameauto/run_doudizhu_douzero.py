@@ -24,7 +24,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-
+ 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from gameauto.config.loader import load_game_config, load_global_config
@@ -44,6 +44,10 @@ ROUNDS = 100   # 打几局; 设为 0 则回退到 环境变量 ROUNDS 或 config
 
 
 async def main():
+    # scrcpy 的 JVM 可能吞 Ctrl+C 信号, 注册强制退出 handler(确保能中断)
+    import signal
+    signal.signal(signal.SIGINT, lambda *_: os._exit(0))
+
     # ── Step 0: Parse CLI ────────────────────────────────────────────
     parser = argparse.ArgumentParser(description="GameAuto DouDiZhu (DouZero)")
     parser.add_argument("--config", type=str, help="Path to config file (YAML)")
@@ -66,17 +70,32 @@ async def main():
     )
     logger.info("GameAuto DouDiZhu (DouZero) | %d rounds", rounds)
 
-    # ── Step 3: Connect device ────────────────────────────────────────
+    # ── Step 3: Connect device (scrcpy 优先高速, 失败兜底 HDC 整局) ──
     device_cfg = global_cfg.get("device", {})
     serial = device_cfg.get("serial")
+    sdk_jar = str(Path(__file__).parent / "resource" / "hosScrcpy-1.0.15-beta.jar")
 
-    from gameauto.core.capture.hdc import HdcCapture as Capture
-    from gameauto.core.input.hdc import HdcInput as Input
-
-    capture = Capture(serial)
-    await capture.connect()
-    input_device = Input(serial)
-    await input_device.connect()
+    capture = None
+    input_device = None
+    use_scrcpy = False
+    try:
+        from gameauto.core.capture.scrcpy.capture import ScrcpyCapture
+        from gameauto.core.input.scrcpy import ScrcpyInput
+        capture = ScrcpyCapture(serial, sdk_jar=sdk_jar, scale=1)   # scale=1 原尺寸(模板匹配)
+        await capture.connect()
+        input_device = ScrcpyInput(serial, sdk_jar=sdk_jar, scale=1)
+        await input_device.connect()
+        use_scrcpy = True
+        logger.info("后端: scrcpy(高速, 原尺寸)")
+    except Exception as e:
+        logger.warning("scrcpy 启动失败(%s), 本局回退 HDC 不再重试", e)
+        from gameauto.core.capture.hdc import HdcCapture
+        from gameauto.core.input.hdc import HdcInput
+        capture = HdcCapture(serial)
+        await capture.connect()
+        input_device = HdcInput(serial)
+        await input_device.connect()
+        logger.info("后端: HDC(兜底)")
 
     capture_w, capture_h = capture.native_resolution
     input_device.set_input_resolution(capture_w, capture_h)
@@ -118,7 +137,8 @@ async def main():
     )
 
     # ── Step 9: Run main loop ─────────────────────────────────────────
-    loop = GameLoop(capture, input_device, sm, context, recorder)
+    loop = GameLoop(capture, input_device, sm, context, recorder,
+                    step_interval=0.03)  # 斗地主连续点击间隔 30ms
     try:
         success = await loop.run()
         logger.info("Session complete: %d rounds", success)
@@ -131,6 +151,10 @@ async def main():
             "final_state": str(context.state),
         })
         await capture.disconnect()
+        if use_scrcpy:
+            # scrcpy 的 JVM(jpype)关闭会挂起, os._exit 绕过(参考 run_match3_scrcpy)
+            logger.info("scrcpy 模式, os._exit(0) 绕过 JVM 关闭挂起")
+            os._exit(0)
 
 
 if __name__ == "__main__":

@@ -211,7 +211,7 @@ class DouzeroDecision:
                         y1=btn["y"],
                         description="点击「开始游戏」",
                     ),
-                    self._wait(5000),   # 发牌动画, 5s 内无需操作
+                    self._wait(6000),   # 发牌动画, 6s 内无需操作
                 ]
         logger.warning("No '开始游戏' button found in lobby")
         return []
@@ -230,7 +230,6 @@ class DouzeroDecision:
                             y1=btn["y"],
                             description=f"点击「{text}」",
                         ),
-                        self._wait(3000),   # 叫牌后等动画/下家
                     ]
         logger.warning("No recognized bidding button found among: %s",
                        [b.get("text") for b in buttons])
@@ -247,7 +246,6 @@ class DouzeroDecision:
                         y1=btn["y"],
                         description="点击「继续」",
                     ),
-                    self._wait(3000),   # 进入下一局, 等加载
                 ]
         logger.warning("No '继续' button found in settlement")
         return []
@@ -336,6 +334,10 @@ class DouzeroDecision:
             else:
                 seq.append(env_cards)
             genv.last_move_dict[self._prev_position()] = env_cards
+        else:
+            # 自由出牌(屏幕无对手牌): 必须清 last_move —— 否则 legal_actions 仍含 pass,
+            # DeepAgent 会选 pass, 但屏幕只有「出牌」没有「不出」点不了 → 死循环
+            genv.card_play_action_seq.clear()
         # 校准我方手牌为屏幕当前值(单步模式不 step, env 手牌可能还是开局全量)
         my_hand = perception.get("my_hand", [])
         if my_hand:
@@ -397,25 +399,33 @@ class DouzeroDecision:
     def _build_play_actions(
         self, action_cards: list[int], perception: dict
     ) -> list[Action]:
-        """Build tap actions to select cards and press '出牌'."""
+        """Build tap actions to select cards and press '出牌'.
+
+        UI 边界:
+        - 只有「出牌」无「不出」= 首动/自由出 → 需手动点每一张要出的牌。
+        - 有「出牌」+「不出」= 压上家牌(≥2张) → 游戏自动补全, 只点一张代表牌即可。
+        """
         actions: list[Action] = []
         card_positions = perception.get("card_positions", {})
+        button_names = [b.get("text", "") for b in perception.get("buttons", [])]
+        # 压牌(有不出按钮)且多张 → 游戏自动补全, 只点一张代表牌
+        auto_fill = any("不出" in n for n in button_names) and len(action_cards) >= 2
 
-        # Tap each card in the action set.
-        # card_positions: {点数: [(x,y), ...]}(同点数多张按列排序);
-        # 消费式取位, 保证出对子/三带二时每张牌点不同位置。
+        # card_positions: {点数: [(x,y), ...]}(同点数多张按列排序); 消费式取位。
         remaining = {k: list(v) for k, v in card_positions.items()}
-        for card in action_cards:
+        cards_to_tap = action_cards[:1] if auto_fill else action_cards
+        for card in cards_to_tap:
             card_name = EnvCard2RealCard.get(card, str(card))
             slots = remaining.get(card_name)
             if slots:
                 pos = slots.pop(0)
+                tag = "(自动补全)" if auto_fill else ""
                 actions.append(
                     Action(
                         type="tap",
                         x1=pos[0],
                         y1=pos[1],
-                        description=f"选牌 {card_name}",
+                        description=f"选牌 {card_name}{tag}",
                     )
                 )
 
@@ -438,15 +448,14 @@ class DouzeroDecision:
                 [b.get("text") for b in buttons],
             )
 
-        return actions + [self._wait(3000)]   # 出牌后等动画/对手出牌
+        return actions
 
     def _action_pass(self, perception: dict) -> list[Action]:
-        """Record a pass in game state and return tap on '不出' button."""
-        if self._env:
-            self._env.players[self._my_position].set_action([])
-            self._env._env.step()
-            self._env.infoset = self._env._game_infoset
+        """Pass: 点击「不出/要不起」。
 
+        单步模式不 step env —— env 靠每帧屏幕校准(_calibrate_env), 推进会因
+        env 漂移(acting 错位)触发 legal_actions assert。这里只负责点击按钮。
+        """
         # Find and tap the "不出" / "要不起" button (both = pass on this round)
         buttons = perception.get("buttons", [])
         for btn in buttons:
@@ -458,7 +467,6 @@ class DouzeroDecision:
                         y1=btn["y"],
                         description="点击「不出/要不起」",
                     ),
-                    self._wait(3000),   # 等对手出牌
                 ]
 
         logger.warning(
