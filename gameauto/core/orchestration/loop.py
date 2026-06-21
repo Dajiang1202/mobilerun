@@ -41,6 +41,7 @@ class GameLoop:
         state_machine: StateMachine,
         context: GameContext,
         recorder: DataRecorder | None = None,
+        step_interval: float = 1.0,
     ) -> None:
         self._capture = capture
         self._input = input_device
@@ -48,6 +49,7 @@ class GameLoop:
         self._ctx = context
         self._recorder = recorder
         self._running = False
+        self._step_interval = step_interval  # 多步 action 间等待(0=连续点击无间隔)
 
     async def run(self) -> int:
         """执行主循环直到 max_rounds 或手动停止。
@@ -98,8 +100,8 @@ class GameLoop:
                     continue
 
                 # 多步操作之间等待动画（不等待最后一步，外层有统一间隔）
-                if step_idx < len(actions) - 1:
-                    await asyncio.sleep(1.0)
+                if step_idx < len(actions) - 1 and self._step_interval > 0:
+                    await asyncio.sleep(self._step_interval)
 
             # ── 4. Wait between rounds ──────────────────────────────
             await asyncio.sleep(0.5)
@@ -120,7 +122,7 @@ class GameLoop:
                 action.x1, action.y1, action.x2, action.y2, action.duration_ms,
             )
         elif action.type == "tap":
-            await self._input.tap(action.x1, action.y1, action.duration_ms)
+            await self._input.tap(action.x1, action.y1, 10)  # 快速点击 10ms
         elif action.type == "wait":
             await asyncio.sleep(action.duration_ms / 1000.0)
         elif action.type == "drag":
