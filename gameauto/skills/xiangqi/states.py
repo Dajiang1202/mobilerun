@@ -13,7 +13,9 @@ from gameauto.core.orchestration.context import GameContext
 from gameauto.core.orchestration.state_machine import StateMachine
 from gameauto.skills.xiangqi.decision import decide
 from gameauto.skills.xiangqi.perception import XiangqiPerceptionLike
-from gameauto.skills.xiangqi.visualizer import annotate_board_state, annotate_move
+from gameauto.skills.xiangqi.visualizer import (
+    annotate_board_state, annotate_move, format_board_matrix,
+)
 
 logger = logging.getLogger("gameauto.xiangqi")
 
@@ -119,7 +121,12 @@ class XiangqiStateRegistrar:
         (round_dir / "vlm_response.json").write_text(
             json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8",
         )
-        logger.info("VLM response:\n%s", json.dumps(state, ensure_ascii=False, indent=2))
+        # 日志只打印紧凑矩阵(完整 JSON 仍写入 vlm_response.json 供调试)
+        if state.get("pieces"):
+            logger.info("Board (b=黑/r=红, row10黑顶→row1红底):\n%s",
+                        format_board_matrix(state.get("pieces", [])))
+        else:
+            logger.info("State: %s", json.dumps(state, ensure_ascii=False))
         if state.get("pieces"):
             annotated = annotate_board_state(image, state)
             (round_dir / "perception.png").write_bytes(annotated)

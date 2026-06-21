@@ -16,8 +16,8 @@ from gameauto.skills.xiangqi.engine import Board, find_best_move_pikafish
 
 logger = logging.getLogger("gameauto.xiangqi.decision")
 
-# 操作间延迟: 走子后等对手(~1s); 框架在动作步之间还会额外等动画。
-_MOVE_DELAY = Action(type="wait", duration_ms=1000, description="Wait for opponent move")
+# 操作间延迟: 走子后等对手(~1.5s); 框架在动作步之间还会额外等动画。
+_MOVE_DELAY = Action(type="wait", duration_ms=1500, description="Wait for opponent move")
 
 
 def decide(state: dict, round_num: int) -> tuple[list[Action], dict | None]:
