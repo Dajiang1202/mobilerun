@@ -321,6 +321,11 @@ class DouzeroDecision:
         bombs = [a for a in non_pass if len(a) == 4 and len(set(a)) == 1]      # 炸弹(4 同点)
         rockets = [a for a in non_pass if sorted(a) == [20, 30]]               # 王炸(小王+大王)
         non_bomb = [a for a in non_pass if a not in bombs and a not in rockets]
+        # 压牌阶段(legal 含 pass = 有上家牌要压)不出炸弹/王炸: 只能用炸弹压时 → pass。
+        # (炸弹 UI 边界复杂 + 风险高; 自由出阶段仍可主动出炸弹)
+        is_pressing = any(not a for a in legal_actions)
+        if is_pressing and not non_bomb:
+            return []
         pool = non_bomb if non_bomb else non_pass
         return min(pool, key=self._action_priority)
 

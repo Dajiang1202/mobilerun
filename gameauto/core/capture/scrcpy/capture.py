@@ -58,7 +58,8 @@ class ScrcpyCapture(BaseCapture):
         if not self._connected:
             await self.connect()
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, screenshot)
+        # wait_new=True: 等新帧到达再返回, 避免读到点击前的过期缓存帧(重复操作根因)
+        return await loop.run_in_executor(None, lambda: screenshot(wait_new=True))
 
     @property
     def native_resolution(self) -> tuple[int, int]:
