@@ -274,27 +274,28 @@ class DouzeroDecision:
             logger.warning("校准后 acting 仍非我方, fallback pass")
             return self._fallback_pass(perception)
 
-        # DeepAgent(我方)
+        # 决策: 临时规则(_USE_RULE=True)—— 方案A 的 env 不完整, DouZero 偏保守
+        # (该压不压)。规则「能压就压、出偏小、留炸弹底」更稳。设 False 换回 DouZero。
         try:
-            agent = self._get_agent(self._my_position)
-            infoset = self._env.infoset
-            action_cards, confidence = agent.act(infoset)
+            legal = self._env.infoset.legal_actions
+            if self._USE_RULE:
+                action_cards = self._rule_select(legal)
+                conf_val, src = -1.0, "rule"
+            else:
+                agent = self._get_agent(self._my_position)
+                action_cards, confidence = agent.act(self._env.infoset)
+                try:
+                    conf_val = float(confidence.item() if hasattr(confidence, "item") else confidence)
+                except (TypeError, ValueError):
+                    conf_val = 0.0
+                src = "douzero"
         except Exception:
-            logger.exception("DeepAgent.act failed")
+            logger.exception("decide failed")
             return self._fallback_pass(perception)
 
-        # Log decision
         display_cards = [EnvCard2RealCard.get(c, "?") for c in action_cards]
-        try:
-            conf_val = float(confidence.item() if hasattr(confidence, "item") else confidence)
-        except (TypeError, ValueError):
-            conf_val = 0.0
-        logger.info(
-            "DeepAgent decision: %s -> %s (confidence=%.4f)",
-            self._my_position,
-            "".join(display_cards) if display_cards else "pass",
-            conf_val,
-        )
+        logger.info("[%s] %s -> %s (conf=%.3f, legal=%d)", src, self._my_position,
+                    "".join(display_cards) if display_cards else "pass", conf_val, len(legal))
 
         if not action_cards:
             return self._action_pass(perception)
@@ -306,6 +307,49 @@ class DouzeroDecision:
     # 方案A: 每帧用屏幕 last_move 校准 env, 纠正跨帧漂移
     # ------------------------------------------------------------------
     _ORDER = ("landlord", "landlord_down", "landlord_up")  # 出牌顺序
+    _USE_RULE = True  # 临时规则决策(方案A env 不准时 DouZero 偏保守); False 换回 DouZero
+
+    def _rule_select(self, legal_actions: list[list[int]]) -> list[int]:
+        """临时规则决策: 能压就压(不轻易 pass), 出偏小的牌, 留炸弹/王炸作底。
+
+        自由出优先组合牌型(顺子/连对/三带二/三带一/顺三), 不轻易出散单张;
+        同优先级选点数小的(保守出小)。压牌时 legal 是同牌型, 自然选最小能压。
+        """
+        non_pass = [a for a in legal_actions if a]
+        if not non_pass:
+            return []  # 只能 pass
+        bombs = [a for a in non_pass if len(a) == 4 and len(set(a)) == 1]      # 炸弹(4 同点)
+        rockets = [a for a in non_pass if sorted(a) == [20, 30]]               # 王炸(小王+大王)
+        non_bomb = [a for a in non_pass if a not in bombs and a not in rockets]
+        pool = non_bomb if non_bomb else non_pass
+        return min(pool, key=self._action_priority)
+
+    @staticmethod
+    def _fill_count(action_cards: list[int], card_positions: dict) -> int:
+        """按牌型返回游戏补全需手动点的张数(点这些后游戏自动补全剩余)。"""
+        from gameauto.skills.doudizhu_douzero.douzero.env.move_detector import get_move_type
+        t = get_move_type(action_cards).get("type", 0)
+        if t == 8:  # 顺子: 点前2张(连续)触发补全, 如 34→34567
+            return 2
+        if t == 9:  # 连对: 点前3张触发补全, 如 334→334455
+            return 3
+        if t in (2, 3):  # 对子/三张: 天然(手牌正好)点1, 拆则全部
+            r = EnvCard2RealCard.get(action_cards[0], str(action_cards[0]))
+            return 1 if len(card_positions.get(r, [])) == len(action_cards) else len(action_cards)
+        # 三带一/三带二/飞机/混合: 不补全, 点全部
+        return len(action_cards)
+
+    @staticmethod
+    def _action_priority(a: list[int]) -> tuple:
+        """出牌优先级: combo_rank 小=优先, 然后点数小、张数少。"""
+        from gameauto.skills.doudizhu_douzero.douzero.env.move_detector import get_move_type
+        t = get_move_type(a).get("type", 0)
+        # 大组合(顺子8/连对9)最优先; 三带(6/7); 三张3; 对子2; 单张1 最后。
+        # 飞机(10-12)默认不出(UI 边界未确认), 排到最后; 只剩飞机才出。
+        # 炸弹4/王炸5 已在 _rule_select 排除。
+        combo_rank = {8: 0, 9: 0, 6: 1, 7: 1, 3: 2, 2: 3, 1: 4,
+                      10: 6, 11: 6, 12: 6}.get(t, 5)
+        return (combo_rank, max(a), len(a))
 
     def _prev_position(self) -> str:
         """我前一位(上家, 对应屏幕 play_up 区)。"""
@@ -407,19 +451,17 @@ class DouzeroDecision:
         """
         actions: list[Action] = []
         card_positions = perception.get("card_positions", {})
-        button_names = [b.get("text", "") for b in perception.get("buttons", [])]
-        # 压牌(有不出按钮)且多张 → 游戏自动补全, 只点一张代表牌
-        auto_fill = any("不出" in n for n in button_names) and len(action_cards) >= 2
-
-        # card_positions: {点数: [(x,y), ...]}(同点数多张按列排序); 消费式取位。
+        # 按牌型决定补全需手动点几张(点起始张数后游戏自动补全剩余); 不补全的牌型点全部。
+        # 顺子点前2、连对点前3; 对子/三张天然(手牌正好)点1, 拆则全部; 三带/混合全部。
+        fill = self._fill_count(action_cards, card_positions)
         remaining = {k: list(v) for k, v in card_positions.items()}
-        cards_to_tap = action_cards[:1] if auto_fill else action_cards
+        cards_to_tap = action_cards[:fill]
         for card in cards_to_tap:
             card_name = EnvCard2RealCard.get(card, str(card))
             slots = remaining.get(card_name)
             if slots:
                 pos = slots.pop(0)
-                tag = "(自动补全)" if auto_fill else ""
+                tag = "(自动补全)" if fill < len(action_cards) else ""
                 actions.append(
                     Action(
                         type="tap",
