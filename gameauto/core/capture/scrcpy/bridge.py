@@ -90,8 +90,20 @@ def shutdown() -> None:
     _cb_proxy = None
 
 
-def screenshot() -> bytes:
-    """Latest frame as PNG bytes (at output resolution)."""
+def screenshot(wait_new: bool = False, timeout: float = 1.0) -> bytes:
+    """Latest frame as PNG bytes (at output resolution).
+
+    wait_new=True 时等待至少一帧新画面到达再返回 —— scrcpy 视频流在 JVM 线程
+    异步更新 _latest_png, 点击后若立即读会取到过期缓存帧(识别到已消失的按钮,
+    导致重复操作)。超时无新帧则警告(视频流可能停滞)。
+    """
+    if wait_new:
+        start = _frame_count
+        t0 = time.perf_counter()
+        while _frame_count <= start and time.perf_counter() - t0 < timeout:
+            time.sleep(0.01)
+        if _frame_count <= start:
+            log.warning("scrcpy: %.1fs 内无新帧, 视频流可能停滞", timeout)
     with _frame_lock:
         return _latest_png or b""
 
