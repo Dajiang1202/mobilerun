@@ -39,11 +39,14 @@ def _text(draw, font, xy, text, fill, stroke=(0, 0, 0)):
 
 
 def _draw_rois(draw, w, h):
-    """画出各识别区(灰色框 + 标签); 像素 ROI 直接用(本机分辨率)。"""
+    """画出各识别区(灰色框 + 标签)。PX 是 native 像素, 按图尺寸缩放适配 scale=2 等。"""
     font = _font(20)
+    nw = max((x2 for _, (_, _, x2, _) in _PX.items()), default=w)
+    nh = max((y2 for _, (_, _, _, y2) in _PX.items()), default=h)
+    sx, sy = w / nw, h / nh
     for name, (x1, y1, x2, y2) in _PX.items():
-        draw.rectangle([x1, y1, x2, y2], outline=(170, 170, 170), width=2)
-        _text(draw, font, (x1 + 4, y1 + 4), f"ROI:{name}", (170, 170, 170))
+        draw.rectangle([x1 * sx, y1 * sy, x2 * sx, y2 * sy], outline=(170, 170, 170), width=2)
+        _text(draw, font, (x1 * sx + 4, y1 * sy + 4), f"ROI:{name}", (170, 170, 170))
 
 
 def annotate_perception(image: bytes, perception: dict) -> bytes:
