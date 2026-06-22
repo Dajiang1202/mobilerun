@@ -330,19 +330,40 @@ class DouzeroDecision:
         return min(pool, key=self._action_priority)
 
     @staticmethod
-    def _fill_count(action_cards: list[int], card_positions: dict) -> int:
-        """按牌型返回游戏补全需手动点的张数(点这些后游戏自动补全剩余)。"""
+    def _fill_subset(action_cards: list[int], card_positions: dict) -> list[int]:
+        """返回游戏补全需手动点的牌(env 整数; 点这些后游戏自动补全剩余)。
+
+        - 顺子: 前2张(如 34→34567)
+        - 连对: 前3张(如 334→334455)
+        - 对子/三张: 天然(手牌正好)点1张, 拆则全部
+        - 三带一(3+1): 点 [带, 三代表], 如 3332 → [2, 3]
+        - 三带二(3+2): 点 [带, 带, 三代表], 如 55544 → [4, 4, 5]
+        - 飞机/混合: 全部
+        """
+        from collections import Counter
         from gameauto.skills.doudizhu_douzero.douzero.env.move_detector import get_move_type
         t = get_move_type(action_cards).get("type", 0)
-        if t == 8:  # 顺子: 点前2张(连续)触发补全, 如 34→34567
-            return 2
-        if t == 9:  # 连对: 点前3张触发补全, 如 334→334455
-            return 3
-        if t in (2, 3):  # 对子/三张: 天然(手牌正好)点1, 拆则全部
+        if t == 8:  # 顺子
+            return action_cards[:2]
+        if t == 9:  # 连对
+            return action_cards[:3]
+        if t in (2, 3):  # 对子/三张: 天然点1, 拆全部
             r = EnvCard2RealCard.get(action_cards[0], str(action_cards[0]))
-            return 1 if len(card_positions.get(r, [])) == len(action_cards) else len(action_cards)
-        # 三带一/三带二/飞机/混合: 不补全, 点全部
-        return len(action_cards)
+            if len(card_positions.get(r, [])) == len(action_cards):
+                return action_cards[:1]
+            return action_cards
+        if t == 6:  # 三带一(3+1): 点 带(1) + 三代表(1), 如 3332 点 [2,3]
+            cnt = Counter(action_cards)
+            triple = next(c for c in cnt if cnt[c] == 3)
+            single = next(c for c in cnt if cnt[c] == 1)
+            return [single, triple]
+        if t == 7:  # 三带二(3+2): 点 带对(2) + 三代表(1), 如 55544 点 [4,4,5]
+            cnt = Counter(action_cards)
+            triple = next(c for c in cnt if cnt[c] == 3)
+            pair = next(c for c in cnt if cnt[c] == 2)
+            return [pair, pair, triple]
+        # 飞机/混合: 点全部
+        return action_cards
 
     @staticmethod
     def _action_priority(a: list[int]) -> tuple:
@@ -458,15 +479,14 @@ class DouzeroDecision:
         card_positions = perception.get("card_positions", {})
         # 按牌型决定补全需手动点几张(点起始张数后游戏自动补全剩余); 不补全的牌型点全部。
         # 顺子点前2、连对点前3; 对子/三张天然(手牌正好)点1, 拆则全部; 三带/混合全部。
-        fill = self._fill_count(action_cards, card_positions)
+        subset = self._fill_subset(action_cards, card_positions)
         remaining = {k: list(v) for k, v in card_positions.items()}
-        cards_to_tap = action_cards[:fill]
-        for card in cards_to_tap:
+        for card in subset:
             card_name = EnvCard2RealCard.get(card, str(card))
             slots = remaining.get(card_name)
             if slots:
                 pos = slots.pop(0)
-                tag = "(自动补全)" if fill < len(action_cards) else ""
+                tag = "(自动补全)" if len(subset) < len(action_cards) else ""
                 actions.append(
                     Action(
                         type="tap",
