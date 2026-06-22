@@ -122,9 +122,9 @@ class GameLoop:
                 action.x1, action.y1, action.x2, action.y2, action.duration_ms,
             )
         elif action.type == "tap":
-            # tap 按下时长: 太短(如10ms)HOS 触控识别不了 → 点击不生效。
-            # 50ms 是 scrcpy bridge 默认值, 能稳定识别。
-            await self._input.tap(action.x1, action.y1, 50)
+            # tap 按下时长: scrcpy 触控需足够 down-up 间隔 HOS 才识别。
+            # 50ms 仍偶发不生效(叫牌/出牌/要不起重复操作), 提到 150ms。
+            await self._input.tap(action.x1, action.y1, 150)
         elif action.type == "wait":
             await asyncio.sleep(action.duration_ms / 1000.0)
         elif action.type == "drag":

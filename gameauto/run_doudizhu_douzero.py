@@ -42,6 +42,13 @@ from gameauto.utils.logging import setup_logging
 # ── 直接在这里配置(无需 CLI / 环境变量) ─────────────────────────────
 ROUNDS = 100   # 打几局; 设为 0 则回退到 环境变量 ROUNDS 或 config.yaml 的 max_rounds
 
+# ── 后端配置(改这两行切换截图/点击后端)──────────────────────────────
+# CAPTURE_BACKEND 截图: "hdc"(准, ~850ms, 当前稳定) / "scrcpy"(快, ~17ms, 但截图滞后致重复操作)
+# INPUT_BACKEND   点击: "hdc"(准, ~100ms) / "scrcpy"(快, ~0.01ms)
+# 当前稳定组合: HDC 截图 + scrcpy 点击(scrcpy 截图滞后问题见 HANDOFF 第八节)
+CAPTURE_BACKEND = "hdc"
+INPUT_BACKEND = "scrcpy"
+
 
 async def main():
     # scrcpy 的 JVM 可能吞 Ctrl+C 信号, 注册强制退出 handler(确保能中断)
@@ -70,32 +77,44 @@ async def main():
     )
     logger.info("GameAuto DouDiZhu (DouZero) | %d rounds", rounds)
 
-    # ── Step 3: Connect device (scrcpy 优先高速, 失败兜底 HDC 整局) ──
+    # ── Step 3: Connect device(按 CAPTURE_BACKEND/INPUT_BACKEND 组装)──
     device_cfg = global_cfg.get("device", {})
     serial = device_cfg.get("serial")
     sdk_jar = str(Path(__file__).parent / "resource" / "hosScrcpy-1.0.15-beta.jar")
+    from gameauto.core.capture.hdc import HdcCapture
+    from gameauto.core.input.hdc import HdcInput
 
-    capture = None
-    input_device = None
-    use_scrcpy = False
-    try:
+    # 截图后端
+    if CAPTURE_BACKEND == "scrcpy":
         from gameauto.core.capture.scrcpy.capture import ScrcpyCapture
-        from gameauto.core.input.scrcpy import ScrcpyInput
-        capture = ScrcpyCapture(serial, sdk_jar=sdk_jar, scale=1)   # scale=1 原尺寸(模板匹配)
-        await capture.connect()
-        input_device = ScrcpyInput(serial, sdk_jar=sdk_jar, scale=1)
-        await input_device.connect()
-        use_scrcpy = True
-        logger.info("后端: scrcpy(高速, 原尺寸)")
-    except Exception as e:
-        logger.warning("scrcpy 启动失败(%s), 本局回退 HDC 不再重试", e)
-        from gameauto.core.capture.hdc import HdcCapture
-        from gameauto.core.input.hdc import HdcInput
-        capture = HdcCapture(serial)
-        await capture.connect()
-        input_device = HdcInput(serial)
-        await input_device.connect()
-        logger.info("后端: HDC(兜底)")
+        capture = ScrcpyCapture(serial, sdk_jar=sdk_jar, scale=1, max_fps=15)
+        try:
+            await capture.connect()
+            logger.info("截图后端: scrcpy")
+        except Exception as e:
+            logger.warning("scrcpy 截图失败(%s), 回退 HDC 截图", e)
+            capture = HdcCapture(serial); await capture.connect()
+            logger.info("截图后端: HDC(scrcpy 兜底)")
+    else:
+        capture = HdcCapture(serial); await capture.connect()
+        logger.info("截图后端: HDC")
+
+    # 点击后端
+    input_device = None
+    if INPUT_BACKEND == "scrcpy":
+        try:
+            from gameauto.core.input.scrcpy import ScrcpyInput
+            input_device = ScrcpyInput(serial, sdk_jar=sdk_jar, scale=1)
+            await input_device.connect()
+            logger.info("点击后端: scrcpy")
+        except Exception as e:
+            logger.warning("scrcpy 点击失败(%s), 回退 HDC 点击", e)
+    if input_device is None:
+        input_device = HdcInput(serial); await input_device.connect()
+        logger.info("点击后端: HDC")
+
+    # 任一 scrcpy 都启动了 JVM, 退出时需 os._exit 绕过 JVM 关闭挂起
+    use_scrcpy = (CAPTURE_BACKEND == "scrcpy" or INPUT_BACKEND == "scrcpy")
 
     capture_w, capture_h = capture.native_resolution
     input_device.set_input_resolution(capture_w, capture_h)
