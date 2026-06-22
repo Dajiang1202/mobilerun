@@ -46,7 +46,7 @@ ROUNDS = 100   # 打几局; 设为 0 则回退到 环境变量 ROUNDS 或 config
 # CAPTURE_BACKEND 截图: "hdc"(准, ~850ms, 当前稳定) / "scrcpy"(快, ~17ms, 但截图滞后致重复操作)
 # INPUT_BACKEND   点击: "hdc"(准, ~100ms) / "scrcpy"(快, ~0.01ms)
 # 当前稳定组合: HDC 截图 + scrcpy 点击(scrcpy 截图滞后问题见 HANDOFF 第八节)
-CAPTURE_BACKEND = "hdc"
+CAPTURE_BACKEND = "scrcpy"   # 截图: scrcpy scale=2(减滞后)
 INPUT_BACKEND = "scrcpy"
 
 
@@ -87,7 +87,7 @@ async def main():
     # 截图后端
     if CAPTURE_BACKEND == "scrcpy":
         from gameauto.core.capture.scrcpy.capture import ScrcpyCapture
-        capture = ScrcpyCapture(serial, sdk_jar=sdk_jar, scale=1, max_fps=15)
+        capture = ScrcpyCapture(serial, sdk_jar=sdk_jar, scale=2, max_fps=15)  # scale=2 减滞后
         try:
             await capture.connect()
             logger.info("截图后端: scrcpy")
@@ -133,6 +133,7 @@ async def main():
         card_confidence=game_cfg.get("card_confidence", 0.85),
         button_confidence=game_cfg.get("template_confidence", 0.90),
         pass_confidence=game_cfg.get("pass_confidence", 0.90),
+        capture_scale=2 if CAPTURE_BACKEND == "scrcpy" else 1,  # 对应 scrcpy scale
     )
     logger.info("Perception: CV template matching | templates=%s", template_dir)
 

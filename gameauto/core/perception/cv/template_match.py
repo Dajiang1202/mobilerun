@@ -214,9 +214,9 @@ class TemplateMatchTask(BaseCVTask):
                 continue
 
             tpl_h, tpl_w = tpl_img.shape[:2]
-            if tpl_w > img.shape[1] or tpl_h > img.shape[0]:
-                continue  # Template larger than search area
-
+            # 注: 不在此处用「原模板尺寸」过滤 —— scale<1(如 scrcpy scale=2, 模板÷2)时,
+            # 原模板可能 > 搜索区(scale=2 的 crop 偏小), 但缩放后能匹配。
+            # 交给下面 scale 循环内的缩放后尺寸检查(line 225)判断。
             tpl_matches: list[dict[str, Any]] = []
 
             for scale in scales:

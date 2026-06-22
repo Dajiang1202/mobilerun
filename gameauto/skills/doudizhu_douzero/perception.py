@@ -95,8 +95,10 @@ class DouDiZhuDouzeroPerception:
         card_confidence: float = 0.88,
         button_confidence: float = 0.88,
         pass_confidence: float = 0.85,
+        capture_scale: int = 1,
     ) -> None:
         self._template_dir = Path(template_dir)
+        self._capture_scale = capture_scale  # scrcpy scale>1 时截图缩小: 模板scales÷scale, ROI用native
         self._matchers: dict[str, TemplateMatchTask] = {}
         # landlord 标志 + 底牌一局固定: 首次锁定后跳过(底牌需 3 张才锁, 否则下帧重试)
         self._landlord_locked = False
@@ -122,12 +124,14 @@ class DouDiZhuDouzeroPerception:
             logger.warning("perception: failed to decode image")
             return PerceptionResult(raw_response="", parsed={}, tasks_output={}, latency_ms=0)
         h, w = img.shape[:2]
+        # PX 按 native(原尺寸)标定; 截图若缩放(scrcpy scale>1), 用 native 归一化 ROI
+        nw, nh = w * self._capture_scale, h * self._capture_scale
 
         def norm(rk):
             if rk is None:
                 return None
             x1, y1, x2, y2 = self.PX[rk]
-            return (x1 / w, y1 / h, x2 / w, y2 / h)
+            return (x1 / nw, y1 / nh, x2 / nw, y2 / nh)
 
         active = [t for t in self.TASKS if t[1] in self._matchers]
         # 一局缓存: landlord/底牌锁定后跳过对应 task
@@ -141,7 +145,8 @@ class DouDiZhuDouzeroPerception:
         results = await asyncio.gather(*[
             self._matchers[sub].run(
                 image, roi=norm(rk),
-                config={"threshold": thr, "scales": scales, "nms_iou": 0.3,
+                config={"threshold": thr,
+                        "scales": [s / self._capture_scale for s in scales], "nms_iou": 0.3,
                         **({"filter_names": fn} if fn else {})})
             for _key, sub, rk, scales, thr, fn, _role in active
         ])
