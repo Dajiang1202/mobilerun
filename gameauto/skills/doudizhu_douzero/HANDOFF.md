@@ -170,19 +170,19 @@ ROUNDS 在脚本顶部常量改。scrcpy 优先,失败自动 HDC。Ctrl+C 强制
 
 ## 八、未解决问题(明天优先)
 
-### 🔴 1. scrcpy 旧帧致重复操作(最高优先,90%+ 概率)
+### ✅ 1. scrcpy 旧帧致重复操作(已解决 2026-06-23)
 
-**现象**:点「要不起」后画面已变,但下一轮截图仍是要不起 → 重复点。round 33→34 证据:`Screenshot: 0.5ms`(只读缓存,非真截图),间隔 1.67s 却仍旧帧。
+**现象**:点「要不起」后画面已变(录屏确认),但下一轮截图仍是要不起 → 重复点(90%+)。
 
-**根因**:scrcpy `screenshot()` 读 `_latest_png` 缓存,on_data(JVM 线程)异步更新。**视频流停滞**(on_data 不推新帧)时缓存冻在旧帧。
+**根因**:scrcpy scale=1(原尺寸 2848×1276)数据量大(3.5MB/帧),on_data 解码/传输堆积,
+`_latest_png` 内容滞后(屏幕变了但推到客户端的帧还在路上)。screenshot 读缓存取到变前帧。
 
-**已尝试**:`screenshot(wait_new=True)` 等 `_frame_count` 增加。**没根治** —— 如果流真停了,等不到新帧,超时仍返回旧帧。
+**解决**:scrcpy **scale=2**(1424×638,数据 ÷4),解码/传输压力大减,滞后消除。
+配套:perception `capture_scale` 参数(ROI 用 native 归一化、模板 scales ÷scale);
+修 template_match 原模板尺寸早跳 bug(scale=2 下高模板 Q/K/A/王 全漏的根因);
+visualizer ROI 框按图尺寸缩放。
 
-**下一步排查方向**:
-- `on_data` 的 `except: pass`(bridge.py:232)**吞了所有异常** —— 先 log 出来看流为什么停(gRPC 断?解码错?)
-- 检查是否上次 scrcpy 进程/JVM 没杀干净(用户怀疑)
-- 加**视频流心跳检测** + 停滞时**自动重连**(`_device.startCaptureScreen` 重启)
-- 或退一步:点击后**显式 sleep + 校验屏幕变了**(识别不到原按钮才算成功,否则重试)
+**验证**:scale=2 无滞后(用户确认),识别 17/17 手牌。CAPTURE_BACKEND="scrcpy" + scale=2 为默认。
 
 ### 🟡 2. 完整 DouZero env(释放 AI 全部实力)
 
