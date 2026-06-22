@@ -1,0 +1,19 @@
+# ohscrcpy 运行依赖
+# 安装: pip install -r requirements.txt
+
+jpype1>=1.5            # Java-Python 桥接 (启动 JVM 加载 SDK JAR)
+av>=12                 # PyAV (FFmpeg H.264 视频流解码)
+opencv-python>=4.8     # 图像格式转换 (RGBA→BGR) + 预览窗口
+numpy>=1.24            # 像素数组
+
+# ── 运行环境额外要求 (无法 pip 安装) ──────────────────────────────
+# 1. JDK / JRE —— 需要有 jvm.dll:
+#      - 推荐 DevEco Studio 自带 JBR, 或
+#      - 任意 OpenJDK 11+ (设置 JAVA_HOME 环境变量或 Device(java_home=...))
+#
+# 2. HOScrcpy SDK JAR —— 华为鸿蒙投屏闭源 SDK:
+#      - 下载见 README.md
+#      - 传入 Device(sdk_jar="路径/hosScrcpy-1.0.15-beta.jar")
+#
+# 3. hdc 工具 —— 鸿蒙设备调试桥 (连接设备/查看序列号):
+#      - hdc list targets

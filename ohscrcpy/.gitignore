@@ -1,0 +1,11 @@
+# 截图输出
+captured/
+ohscrcpy_shot.png
+shot_*.png
+
+# Python
+__pycache__/
+*.pyc
+
+# SDK JAR (单独下载，不入库)
+hosScrcpy-*.jar
