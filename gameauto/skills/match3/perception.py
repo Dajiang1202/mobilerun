@@ -73,7 +73,6 @@ class Match3Perception:
 
         # 解析 + 纠错
         board = json.loads(json_str)
-        board = self._expand_compact_board(board)
         board = self._validate_and_correct_board(board)
 
         rows = board.get("rows", "?")
@@ -99,51 +98,6 @@ class Match3Perception:
                 text = text[text.index("\n") + 1 : end].strip()
         m = JSON_RE.search(text)
         return m.group(0) if m else None
-
-    @staticmethod
-    def _expand_compact_board(board: dict) -> dict:
-        """将紧凑格式（legend + 行字符串）展开为完整 tiles 网格。
-
-        紧凑格式（省 token）:
-            {"legend": {"B": "blue_bear", ...}, "tiles": ["BGNBGNB", ...]}
-        特殊码: "." => empty, "#" => blocked。
-        若 tiles 已经是 list[list]（旧格式或已展开），原样返回（向后兼容）。
-
-        展开后下游 solver/visualizer/board.json 完全无感。
-        """
-        tiles = board.get("tiles")
-        if not isinstance(tiles, list) or not tiles:
-            return board
-        # 已经是二维数组（旧格式）→ 不处理
-        if all(isinstance(row, list) for row in tiles):
-            return board
-
-        legend = board.get("legend", {}) or {}
-        legend = {str(k): str(v) for k, v in legend.items()}
-
-        expanded: list[list[str]] = []
-        for row in tiles:
-            if not isinstance(row, str):
-                expanded.append([str(row)])
-                continue
-            row = row.rstrip()
-            cells: list[str] = []
-            for ch in row:
-                if ch == ".":
-                    cells.append("empty")
-                elif ch == "#":
-                    cells.append("blocked")
-                elif ch in legend:
-                    cells.append(legend[ch])
-                else:
-                    # 未知码：原样保留，solver 会把它当作独立类型处理
-                    cells.append(ch)
-            expanded.append(cells)
-
-        board["tiles"] = expanded
-        # legend 已展开完毕，丢弃以保持 board.json 干净
-        board.pop("legend", None)
-        return board
 
     @staticmethod
     def _validate_and_correct_board(board: dict) -> dict:
