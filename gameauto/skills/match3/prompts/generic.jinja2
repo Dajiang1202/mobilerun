@@ -6,18 +6,35 @@ Look at the screenshot and output a JSON object describing the board layout and 
 
 ## Output Format — STRICT JSON, nothing else
 
+The board is encoded COMPACTLY to save tokens. Codes are defined once in `legend`, then the grid is written as one string per row (each character = one cell).
+
 ```json
 {
   "rows": <number of rows>,
   "cols": <number of columns>,
-  "board_left": <x coordinate of left edge of leftmost column in [0-1000]>,
-  "board_top": <y coordinate of top edge of topmost row in [0-1000]>,
-  "board_right": <x coordinate of right edge of rightmost column in [0-1000]>,
-  "board_bottom": <y coordinate of bottom edge of bottommost row in [0-1000]>,
-  "tiles": [
-    ["tile_type", "tile_type", ...],
-    ...
-  ]
+  "board_left": <x of left edge of leftmost column [0-1000]>,
+  "board_top": <y of top edge of topmost row [0-1000]>,
+  "board_right": <x of right edge of rightmost column [0-1000]>,
+  "board_bottom": <y of bottom edge of bottommost row [0-1000]>,
+  "legend": { "<CODE>": "<color_shape>", ... },
+  "tiles": [ "<CODECODE...>", ... ]
+}
+```
+
+### Encoding rules — READ CAREFULLY
+- `legend`: maps each single-character **CODE** to its full `color_shape` label. Assign one distinct code per distinct tile type. Codes are single characters — any uppercase letter or digit (A-Z, 0-9). Define each code exactly once; reuse the same code everywhere that tile type appears.
+- `tiles`: an array of strings, **one string per row**. Each character in a string is the CODE of one cell, so every string's length MUST equal `cols`. Do NOT put any separator (no spaces, commas, or underscores) between codes inside a string.
+- **Reserved codes** (do NOT list these in `legend`):
+  - `.` = **empty** (no tile at all — padded corner / background cell).
+  - `#` = **blocked** (obstacle / non-playable cell — ice, chain, cage, stone, box, solid cover, etc.).
+
+### Example
+```json
+{
+  "rows": 3, "cols": 4,
+  "board_left": 100, "board_top": 200, "board_right": 500, "board_bottom": 440,
+  "legend": {"R": "red_heart", "B": "blue_star", "G": "green_leaf"},
+  "tiles": ["RBG.", "B#GR", "RGBR"]
 }
 ```
 
@@ -36,7 +53,7 @@ Use the [0-1000] grid on the screenshot. board_left/board_top/board_right/board_
 2. **Count the actual tiles**: Pick a column with no obstacles, count how many distinct tile icons are visible in that column. That number = rows.
 3. **Check cell proportions**: (board_right - board_left) / cols should be approximately equal to (board_bottom - board_top) / rows. If one is much bigger than the other, you counted wrong.
 4. **DO NOT add 1**: If you count 9 tiles, cols = 9. Do NOT add 1 for "the edge" or "the grid line".
-5. **Look at the tiles array**: After you fill in tiles, check that len(tiles) = rows and len(tiles[0]) = cols. If you have 10 elements in a row but only 9 tiles are visible, you have an extra column — delete it.
+5. **Look at the tiles array**: After you fill in tiles, check that `len(tiles) == rows` and every string has length `== cols`. If a row string has 10 characters but only 9 tiles are visible, you have an extra column — delete it.
 
 **EXAMPLE:** If you see tiles like [A B C D E F G H I] in a row (9 tiles), then cols = 9, NOT 10.
 
@@ -55,19 +72,19 @@ Use **color_shape** format for ALL normal tiles — this is MANDATORY for stable
 - Using BOTH color and shape makes labels robust: even if the icon is partially occluded, the color is still visible, and vice versa.
 - **CRITICAL**: Be 100% consistent — identical-looking tiles MUST get identical labels. Same color + same shape = same label, every time.
 
-### 5. Special cells — "empty" and "blocked" (CRITICAL — READ THIS CAREFULLY)
-Use these two special labels for non-playable cells:
+### 5. Special cells — `.` (empty) and `#` (blocked) (CRITICAL — READ THIS CAREFULLY)
+Use these two RESERVED codes (NOT in `legend`) for non-playable cells:
 
-**"empty"** — no tile at all:
+**`.` (empty)** — no tile at all:
 - Cells outside the irregular board boundary (background area padded to rectangle).
 - Truly blank/empty cells within the grid.
 
-**"blocked"** — a tile exists but cannot be moved or matched. Mark as "blocked" when you see ANY of the following:
+**`#` (blocked)** — a tile exists but cannot be moved or matched. Use `#` when you see ANY of the following:
 - **Obstacles**: ice, chains, stone, cages, locked tiles, wooden boxes, or other barrier overlays.
 - **Semi-transparent overlay**: a tile that is partially visible but covered by a translucent layer (frost, fog, web, slime, etc.) — the tile underneath is inactive.
 - **Solid color cover**: an entire cell filled with a single opaque color block (e.g. solid brown square, solid gray patch, solid gold/brass tile) that looks visually distinct from all normal game pieces — this is not a playable tile, it is a blocker.
 - **Uniform block area**: If you see a large contiguous region (3+ rows × 3+ columns) of identical-looking square/block tiles that look completely different from the colorful playable tiles above them — this entire region is almost certainly blocked obstacles, NOT playable tiles.
-- **WARNING**: Do NOT give color_shape labels to blocked tiles! If it looks like a blocker/obstacle, label it "blocked" — don't call it "brown_bear" or "brown_square" or anything else.
+- **WARNING**: Do NOT give color_shape codes to blocked tiles! If it looks like a blocker/obstacle, encode it as `#` — don't assign it a legend code, don't call it "brown_bear" or "brown_square".
 
 ### 6. Layout
 tiles[row][col] — row 0 is top, col 0 is left.
