@@ -40,7 +40,7 @@ from gameauto.skills.doudizhu_douzero.skill import DouDiZhuDouzeroSkill
 from gameauto.utils.logging import setup_logging
 
 # ── 直接在这里配置(无需 CLI / 环境变量) ─────────────────────────────
-ROUNDS = 100   # 打几局; 设为 0 则回退到 环境变量 ROUNDS 或 config.yaml 的 max_rounds
+ROUNDS = 200  # 打几局; 设为 0 则回退到 环境变量 ROUNDS 或 config.yaml 的 max_rounds
 
 # ── 后端配置(改这两行切换截图/点击后端)──────────────────────────────
 # CAPTURE_BACKEND 截图: "hdc"(准, ~850ms, 当前稳定) / "scrcpy"(快, ~17ms, 但截图滞后致重复操作)
