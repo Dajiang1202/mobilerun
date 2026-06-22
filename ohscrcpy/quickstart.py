@@ -3,10 +3,10 @@
 
 直接运行::
 
-    python quickstart.py            # 跑全部示例
-    python quickstart.py preview    # 只开实时预览
+    python quickstart.py
 
-运行前先改下面的 ═► 配置区 ═，填入设备序列号和 SDK JAR 路径。
+运行前先改 ``main()`` 里的 ═► 配置区 ═，填入设备序列号等参数。
+所有参数都是 main() 的局部变量，直接传给 Device，不用命令行、不读全局。
 """
 
 from __future__ import annotations
@@ -20,62 +20,55 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ohscrcpy import Device
 
-# ════════════════════════════════════════════════════════════════════
-#  ► 配置区  ——  改这里就够，无需命令行传参
-# ════════════════════════════════════════════════════════════════════
 
-# 设备序列号。命令行 `hdc list targets` 查看。
-DEVICE_SERIAL = "YOUR_DEVICE_SN"
-
-# HOScrcpy SDK JAR 路径 (绝对或相对本文件)。
-# 下载见 README.md。默认在当前目录和上层 gameauto/resource/ 找。
-SDK_JAR = "hosScrcpy-1.0.15-beta.jar"
-
-# JDK/JRE 路径 (留空自动探测 DevEco Studio 自带 JBR / JAVA_HOME 环境变量)。
-JAVA_HOME = ""  # 例如: "E:/DevEco Studio/jbr"
-
-# 截图输出缩放系数: 1=原分辨率, 2=二分之一, 3=三分之一 ...
-SCALE = 2
-
-# 视频流帧率上限 (1-60)，超出部分客户端跳帧丢弃。
-MAX_FPS = 30
-
-# ════════════════════════════════════════════════════════════════════
+DEFAULT_SDK_JAR = "hosScrcpy-1.0.15-beta.jar"
 
 
-def _make_device() -> Device:
-    """按配置创建并连接设备，返回 Device。"""
-    # SDK JAR 路径解析: 显式路径 → 当前目录 → gameauto/resource 兜底
-    jar = SDK_JAR
-    if not os.path.isabs(jar) and not os.path.exists(jar):
-        here = os.path.dirname(os.path.abspath(__file__))
-        candidates = [
-            os.path.join(here, jar),
-            os.path.join(here, "..", "gameauto", "resource", os.path.basename(jar)),
-            os.path.join(here, "..", "gameauto", "resource", "hosScrcpy-1.0.15-beta.jar"),
-        ]
-        for c in candidates:
-            if os.path.exists(c):
-                jar = os.path.abspath(c)
-                break
-    if not os.path.exists(jar):
-        print(f"❌ 找不到 SDK JAR: {jar}")
-        print("   修改 quickstart.py 顶部的 SDK_JAR，或把 jar 放到当前目录。")
+def resolve_sdk_jar(jar: str) -> str:
+    """解析 SDK JAR: 绝对/显式路径 → 当前目录 → gameauto/resource 兜底。"""
+    if os.path.isabs(jar) and os.path.exists(jar):
+        return jar
+    if os.path.exists(jar):
+        return os.path.abspath(jar)
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, jar),
+        os.path.join(here, "..", "gameauto", "resource", os.path.basename(jar)),
+        os.path.join(here, "..", "gameauto", "resource", DEFAULT_SDK_JAR),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return os.path.abspath(c)
+    return jar  # 返回原名, connect 时报错给提示
+
+
+def make_device(sn: str, sdk_jar: str, java_home: str = "",
+                scale: int = 2, max_fps: int = 30, jitter: int = 3) -> Device:
+    """按参数创建并连接 Device。所有参数显式传入, 不读任何全局。"""
+    sdk_jar = resolve_sdk_jar(sdk_jar)
+    if not os.path.exists(sdk_jar):
+        print(f"[ERROR] 找不到 SDK JAR: {sdk_jar}")
+        print("        改 main() 里的 sdk_jar, 或把 jar 放到当前目录。")
         sys.exit(1)
 
     dev = Device(
-        serial=DEVICE_SERIAL,
-        sdk_jar=jar,
-        java_home=JAVA_HOME,
-        scale=SCALE,
-        max_fps=MAX_FPS,
+        serial=sn,
+        sdk_jar=sdk_jar,
+        java_home=java_home,
+        scale=scale,
+        max_fps=max_fps,
+        jitter=jitter,
     )
     dev.connect()
     return dev
 
 
+# ════════════════════════════════════════════════════════════════════
+#  示例 —— 每个都接收已连接的 Device, 不读任何全局状态
+# ════════════════════════════════════════════════════════════════════
+
 def demo_screenshot(dev: Device) -> None:
-    """① 截屏 —— 连续抓 5 帧，统计耗时，保存一帧。"""
+    """① 截屏 —— 连续抓 5 帧, 统计耗时, 保存一帧。"""
     print("\n" + "=" * 60)
     print("① 截屏示例")
     print("=" * 60)
@@ -104,7 +97,7 @@ def demo_click(dev: Device) -> None:
 
 
 def demo_multi_click(dev: Device) -> None:
-    """③ 连点 —— 同一位置快速点 5 次 (模拟抽卡/连抽按钮)。"""
+    """③ 连点 —— 同一位置快速点 5 次。"""
     print("\n" + "=" * 60)
     print("③ 连点示例 (5 次, 间隔 0.15s)")
     print("=" * 60)
@@ -170,24 +163,65 @@ def demo_preview(dev: Device) -> None:
     cv2.destroyAllWindows()
 
 
+# ════════════════════════════════════════════════════════════════════
+
 def main() -> None:
-    if DEVICE_SERIAL == "YOUR_DEVICE_SN":
-        print("❌ 请先在 quickstart.py 顶部把 DEVICE_SERIAL 改成真实设备序列号")
-        print("   查看序列号: hdc list targets")
+    # ══════════════════════════════════════════════════════════════
+    #  ► 配置区  ——  直接改这些局部变量
+    # ══════════════════════════════════════════════════════════════
+
+    # 设备序列号 (hdc list targets 查看)
+    sn = "YOUR_DEVICE_SN"
+
+    # HOScrcpy SDK JAR 路径 (绝对或相对本文件)
+    sdk_jar = DEFAULT_SDK_JAR
+
+    # JDK/JRE 路径 (留空自动探测 DevEco JBR / JAVA_HOME)
+    java_home = ""  # 例如 "E:/DevEco Studio/jbr"
+
+    # 截图输出缩放系数: 1=原分辨率, 2=二分之一, 3=三分之一
+    scale = 2
+
+    # 视频流帧率上限 (1-60)
+    max_fps = 30
+
+    # 点击坐标随机抖动像素数, 0 关闭
+    jitter = 3
+
+    # 跑哪些示例: "all" 或 "screenshot" / "click" / "multi_click" / "swipe" / "preview"
+    demo = "all"
+
+    # ══════════════════════════════════════════════════════════════
+
+    if sn == "YOUR_DEVICE_SN":
+        print("[ERROR] 请先把 main() 里的 sn 改成真实设备序列号 (hdc list targets 查看)")
         sys.exit(1)
 
-    only_preview = len(sys.argv) > 1 and sys.argv[1] == "preview"
+    dev = make_device(
+        sn=sn,
+        sdk_jar=sdk_jar,
+        java_home=java_home,
+        scale=scale,
+        max_fps=max_fps,
+        jitter=jitter,
+    )
 
-    dev = _make_device()
     try:
-        if only_preview:
+        if demo == "all":
+            demo_screenshot(dev)
+            demo_click(dev)
+            demo_multi_click(dev)
+            demo_swipe(dev)
+            print("\n[OK] 全部示例完成。想看实时预览: 把 demo 改成 'preview'")
+        elif demo == "preview":
             demo_preview(dev)
-            return
-        demo_screenshot(dev)
-        demo_click(dev)
-        demo_multi_click(dev)
-        demo_swipe(dev)
-        print("\n✅ 全部示例完成。想看实时预览: python quickstart.py preview")
+        else:
+            {
+                "screenshot": demo_screenshot,
+                "click": demo_click,
+                "multi_click": demo_multi_click,
+                "swipe": demo_swipe,
+            }[demo](dev)
     finally:
         dev.close()
 
