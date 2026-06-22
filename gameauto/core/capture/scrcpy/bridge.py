@@ -241,8 +241,12 @@ def _start_stream():
                         _latest_bgr = bgr
                         _latest_png = png.tobytes()
                         _frame_count += 1
+                        if _frame_count % 30 == 0:
+                            import hashlib
+                            h = hashlib.md5(png.tobytes()).hexdigest()[:8]
+                            log.info("stream frame %d hash=%s", _frame_count, h)
         except Exception:
-            pass
+            log.exception("on_data decode failed")
 
     def on_exception(t):
         log.warning("Stream: %s", t.getMessage() if t.getMessage() else str(t))
