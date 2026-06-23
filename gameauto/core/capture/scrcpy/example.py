@@ -19,8 +19,10 @@ import sys
 # 设备序列号 (hdc list targets 查看)
 DEVICE_SERIAL = "4NZ0225613000015"
 
-# SDK JAR 路径 (相对于 gameauto 根目录)
-SDK_JAR = "gameauto/resource/hosScrcpy-1.0.15-beta.jar"
+# SDK JAR 路径 — 基于 __file__ 定位, 换电脑/换工作目录都能找到
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_HERE))))
+SDK_JAR = os.path.join(_PROJECT_ROOT, "gameauto", "resource", "hosScrcpy-1.0.15-beta.jar")
 
 # JDK/JRE 路径 (留空则自动检测 DevEco Studio 自带 JBR)
 JAVA_HOME = ""  # 例如: "E:/DevEco Studio/jbr"
