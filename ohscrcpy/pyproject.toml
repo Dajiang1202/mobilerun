@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ohscrcpy"
+version = "0.1.0"
+description = "鸿蒙(HarmonyOS)设备低延迟截屏与触控(HOScrcpy SDK 封装)"
+requires-python = ">=3.10"
+dependencies = [
+    "jpype1",
+    "av",
+    "opencv-python",
+    "numpy",
+]
+
+[project.urls]
+README = "https://github.com/Dajiang1202/mobilerun"
+
+[tool.setuptools.packages.find]
+include = ["ohscrcpy*"]

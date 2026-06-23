@@ -118,10 +118,10 @@ class Device:
 
     # ── 截图 ─────────────────────────────────────────────────────
 
-    def screenshot(self, wait_new: bool = True) -> bytes:
-        """返回最新帧 PNG bytes (输出分辨率)。
+    def screenshot(self, wait_new: bool = False) -> bytes:
+        """返回最新帧 PNG bytes (输出分辨率)。效率优先: 默认直接读缓存(~0.5ms)。
 
-        wait_new=True 时等待一帧新画面，避免读到操作前的过期缓存帧。
+        wait_new=True 等一帧新画面(点击后避免过期帧, scale=2 下默认即可)。
         """
         return screenshot(wait_new=wait_new)
 
@@ -142,6 +142,10 @@ class Device:
         """单次点击 (原生像素坐标)。duration_ms>~500 时等同于长按。返回耗时(ms)。"""
         x, y = self._apply_jitter(x, y)
         return touch(x, y, duration_ms)
+
+    def tap(self, x: int, y: int, duration_ms: int = 50) -> float:
+        """点击 (click 别名, 原生像素坐标)。"""
+        return self.click(x, y, duration_ms)
 
     def long_press(self, x: int, y: int, duration_ms: int = 1000) -> float:
         """长按 (原生像素坐标)。"""
