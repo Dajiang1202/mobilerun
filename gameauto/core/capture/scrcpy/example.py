@@ -19,8 +19,10 @@ import sys
 # 设备序列号 (hdc list targets 查看)
 DEVICE_SERIAL = "4NZ0225613000015"
 
-# SDK JAR 路径 (相对于 gameauto 根目录)
-SDK_JAR = "gameauto/resource/hosScrcpy-1.0.15-beta.jar"
+# SDK JAR 路径 — 基于 __file__ 定位, 换电脑/换工作目录都能找到
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_HERE))))
+SDK_JAR = os.path.join(_PROJECT_ROOT, "gameauto", "resource", "hosScrcpy-1.0.15-beta.jar")
 
 # JDK/JRE 路径 (留空则自动检测 DevEco Studio 自带 JBR)
 JAVA_HOME = ""  # 例如: "E:/DevEco Studio/jbr"
@@ -125,6 +127,8 @@ def example_3_preview():
     fps_last = time.perf_counter()
     fps_count = 0
     fps_current = 0.0
+    # 跟踪当前窗口尺寸，横竖屏切换时自动调整
+    current_w, current_h = ow, oh
 
     print(f"截图保存目录: {save_dir}")
 
@@ -143,6 +147,15 @@ def example_3_preview():
             fps_last = now
 
         fh, fw = frame.shape[:2]
+
+        # 横竖屏切换时自动调整预览窗口
+        if fw != current_w or fh != current_h:
+            current_w, current_h = fw, fh
+            cv2.resizeWindow("Scrcpy Preview",
+                             max(1, int(fw * PREVIEW_SCALE)),
+                             max(1, int(fh * PREVIEW_SCALE)))
+            print(f"  分辨率变更: 输出 {fw}x{fh}  (原生 {resolution()[0]}x{resolution()[1]})")
+
         cv2.setWindowTitle(
             "Scrcpy Preview",
             f"Scrcpy Preview — {fw}x{fh} @ {fps_current:.0f} FPS | 按 q 退出 按 s 截图"

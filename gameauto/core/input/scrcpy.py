@@ -82,7 +82,11 @@ class ScrcpyInput(BaseInput):
             self._iw, self._ih = resolution()
 
     def _check_resolution(self) -> tuple[int, int]:
-        w, h = self.input_resolution
-        if not w or not h:
+        # Dynamic: refresh from bridge in case screen rotated (portrait↔landscape)
+        from gameauto.core.capture.scrcpy.bridge import resolution as _res
+        w, h = _res()
+        if w and h:
+            self._iw, self._ih = w, h
+        if not self._iw or not self._ih:
             raise RuntimeError("set_input_resolution() first")
-        return w, h
+        return (self._iw, self._ih)
