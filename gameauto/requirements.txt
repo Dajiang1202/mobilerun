@@ -1,0 +1,32 @@
+# ============================================================
+# GameAuto — 移动端游戏自动化框架
+# Python >=3.10, <3.13 (PaddleOCR 兼容性)
+# ============================================================
+# 安装: pip install -r gameauto/requirements.txt
+# 按需安装: 见下方 [OCR] / [scrcpy] / [DouZero] 分组
+# ============================================================
+
+# === 核心依赖 (所有游戏通用) ===
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+PyYAML>=6.0
+pydantic>=2.0
+httpx>=0.27.0
+openai>=1.0.0
+scipy>=1.10.0
+
+# === OCR (金铲铲/斗地主 CV 感知需要) ===
+paddlepaddle>=2.6.0
+paddleocr>=2.7.0
+
+# === scrcpy 低延迟推流 (推荐, 截图 ~17ms vs HDC ~850ms) ===
+JPype1>=1.5.0
+av>=12.0.0
+
+# === DouZero 斗地主 AI (仅 doudizhu_douzero 需要) ===
+# torch>=2.0.0          # 约 2GB, 按需安装: pip install torch
+
+# === VLM 感知 (仅 match3/xiangqi 等 VLM 游戏需要) ===
+# openai 已在核心依赖中, 无需额外安装
+# jinja2 为 Python 标准库外可选, 但 openai SDK 已依赖
