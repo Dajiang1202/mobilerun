@@ -49,7 +49,7 @@ gameauto/
 │   ├── tft/                        #   金铲铲之战
 │   └── xiangqi/                    #   天天象棋
 │
-├── config/                         # 配置体系
+├── config/                         # 配置体系 (框架默认值, 不要改)
 │   ├── default.yaml                #   框架默认值
 │   └── loader.py                   #   三层配置加载器
 │
@@ -66,6 +66,11 @@ gameauto/
 ├── run_xiangqi.py                  # 象棋入口
 ├── requirements.txt                # Python 依赖
 └── DEPLOY.md                       # 本文档
+
+~/.gameauto/                        # 用户配置目录 (项目外, 自动创建)
+├── settings.yaml                   #   全局配置 (设备 + VLM)
+└── games/                          #   游戏覆盖配置
+    └── <game>.yaml
 ```
 
 ---
@@ -172,16 +177,25 @@ python gameauto/tools/crop_template.py --image screenshot.png --output templates
 
 ### 配置体系 (三层覆盖)
 
+所有用户配置都在 `~/.gameauto/` 目录下（即 `C:\Users\<你的用户名>\.gameauto\`），**不要改项目目录里的文件**。
+
 ```
-优先级从低到高:
-① gameauto/config/default.yaml    ← 框架默认值 (不要改)
-② gameauto/skills/<game>/config.yaml ← 游戏默认参数
-③ ~/.gameauto/games/<game>.yaml   ← 用户覆盖 (可选, git 不追踪)
+~/.gameauto/
+├── settings.yaml              ← 全局配置 (设备 serial + VLM key, 跨游戏共享)
+└── games/
+    ├── match3.yaml            ← 消消乐用户覆盖 (可选)
+    ├── doudizhu_douzero.yaml  ← 斗地主用户覆盖 (可选)
+    └── tft.yaml               ← 金铲铲用户覆盖 (可选)
+
+加载优先级 (低→高):
+① gameauto/config/default.yaml            ← 框架默认值 (只读, 不要改)
+② gameauto/skills/<game>/config.yaml      ← 游戏默认参数 (只读, 随代码分发)
+③ ~/.gameauto/games/<game>.yaml           ← 用户覆盖 (你改这里)
 ```
 
 ### 首次运行 — 全局配置
 
-首次运行任何游戏会自动创建 `~/.gameauto/settings.yaml`：
+首次运行任何游戏会**自动创建** `~/.gameauto/settings.yaml`：
 
 ```yaml
 # ~/.gameauto/settings.yaml — 编辑此文件!
@@ -201,27 +215,25 @@ logging:
 
 ### 游戏参数配置
 
-每个游戏有独立配置，以金铲铲为例：
+用户自定义参数写到 `~/.gameauto/games/<game>.yaml`，以金铲铲为例：
 
 ```yaml
-# gameauto/skills/tft/config.yaml
+# ~/.gameauto/games/tft.yaml — 用户覆盖 (只写你想改的项)
 
-rounds: 500                        # 总对局数
-max_steps_per_round: 6             # 每轮最大操作步数
+rounds: 100                        # 覆盖默认的 500 局
 
 strategy:
-  type: slow_roll                  # 策略类型
-  core_champions:                  # 核心棋子
+  type: slow_roll
+  core_champions:                  # 自定义核心棋子
     - name: "琴女"
       cost: 1
       target_stars: 3
     - name: "盖伦"
       cost: 1
       target_stars: 3
-  level_up_schedule:               # 升级时间表
-    - { round: 2, level: 5 }
-    - { round: 5, level: 6 }
 ```
+
+> 不需要复制完整配置，只写你要覆盖的字段。未指定的字段自动回退到 `skills/<game>/config.yaml` 的默认值。
 
 ---
 
