@@ -1,0 +1,51 @@
+{
+  "resolution": [
+    712,
+    319
+  ],
+  "hand_cards_roi": [
+    0.0,
+    0.78,
+    1.0,
+    1.0
+  ],
+  "opponent_play_roi": [
+    0.1,
+    0.25,
+    0.9,
+    0.65
+  ],
+  "button_roi": [
+    0.5,
+    0.65,
+    1.0,
+    1.0
+  ],
+  "bidding_button_roi": [
+    0.25,
+    0.48,
+    0.75,
+    0.85
+  ],
+  "settlement_roi": [
+    0.25,
+    0.48,
+    0.75,
+    0.85
+  ],
+  "landlord_icon_roi": [
+    0.0,
+    0.0,
+    1.0,
+    0.15
+  ],
+  "rois": {
+    "landlord": [
+      0.8048,
+      0.2539,
+      0.8469,
+      0.3668
+    ]
+  },
+  "category": "buttons"
+}

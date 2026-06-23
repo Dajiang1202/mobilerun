@@ -1,0 +1,19 @@
+# GameAuto Framework — Global defaults (shared by all games)
+# DO NOT put secrets here. Edit ~/.gameauto/settings.yaml
+# Game-specific params go in skills/<game>/config.yaml
+
+device:
+  serial: null
+  hdc_path: hdc
+  screenshot_method: auto
+
+vlm:
+  model: gpt-4o
+  base_url: ""
+  api_key: ""
+
+perception:
+  prompt_path: skills/match3/prompts/generic.jinja2
+
+logging:
+  console_level: INFO

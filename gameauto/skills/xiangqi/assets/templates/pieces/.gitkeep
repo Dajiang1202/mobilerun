@@ -1,0 +1,4 @@
+# 棋子模板: 命名 {r|b}_{字形}.png
+# 红方: r_帥 r_仕 r_相 r_馬 r_車 r_炮 r_兵
+# 黑方: b_将 b_士 b_象 b_馬 b_車 b_炮 b_卒
+# 用 gameauto/tools/crop_template.py --skill xiangqi 裁剪生成

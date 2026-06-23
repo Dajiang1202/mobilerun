@@ -1,0 +1,12 @@
+# Xiangqi (天天象棋) Skill — Default Configuration
+rounds: 50
+
+# 感知后端: vlm | template
+#   vlm      — VLM 单次识别 (原始路径, 需 VLM 服务)
+#   template — 模板匹配 (离线, 复用 TemplateMatchTask; 受阻时首选)
+perception_method: template
+
+template:
+  piece_confidence: 0.90    # 棋子匹配阈值; 高亮/走子标记的棋子分数会降到~0.93, 0.90可捞回且网格去重防误检
+  button_confidence: 0.85
+  marker_confidence: 0.80

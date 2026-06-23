@@ -82,6 +82,14 @@ class FastAgentConfig:
 
 
 @dataclass
+class FastGameAgentConfig:
+    """消消乐游戏模式专用配置：独立提示词路径和游戏日志目录"""
+    system_prompt: str = "config/prompts/fast_game_agent/system.jinja2"
+    user_prompt: str = "config/prompts/fast_game_agent/user.jinja2"
+    game_logs_path: str = "game_logs"  # swipe 可视化日志保存目录
+
+
+@dataclass
 class ManagerConfig:
     vision: bool = False
     system_prompt: str = "config/prompts/manager/system.jinja2"
@@ -116,8 +124,10 @@ class AgentConfig:
     after_sleep_action: float = 1.0
     wait_for_stable_ui: float = 0.3
     use_normalized_coordinates: bool = False
+    game_mode: bool = False  # 消消乐游戏模式开关，启用后使用 fast_game_agent 配置和专用提示词
 
     fast_agent: FastAgentConfig = field(default_factory=FastAgentConfig)
+    fast_game_agent: FastGameAgentConfig = field(default_factory=FastGameAgentConfig)  # 游戏模式独立配置
     manager: ManagerConfig = field(default_factory=ManagerConfig)
     executor: ExecutorConfig = field(default_factory=ExecutorConfig)
     app_cards: AppCardConfig = field(default_factory=AppCardConfig)
@@ -127,6 +137,15 @@ class AgentConfig:
 
     def get_fast_agent_user_prompt_path(self) -> str:
         return str(PathResolver.resolve(self.fast_agent.user_prompt, must_exist=True))
+
+    # 以下为游戏模式专用的提示词路径解析方法
+    # 注意：get_fast_game_agent_user_prompt_path 曾有一个死代码 return 和重复
+    # 的 get_fast_agent_user_prompt_path 定义，已清理以通过 ruff lint 检查
+    def get_fast_game_agent_system_prompt_path(self) -> str:
+        return str(PathResolver.resolve(self.fast_game_agent.system_prompt, must_exist=True))
+
+    def get_fast_game_agent_user_prompt_path(self) -> str:
+        return str(PathResolver.resolve(self.fast_game_agent.user_prompt, must_exist=True))
 
     def get_manager_system_prompt_path(self) -> str:
         return str(PathResolver.resolve(self.manager.system_prompt, must_exist=True))
@@ -143,8 +162,10 @@ class DeviceConfig:
     control_backend: Optional[str] = None
     device_id: str = "auto"
     use_tcp: bool = False
-    platform: str = "android"  # "android" or "ios"
+    platform: str = "android"  # "android", "harmonyos", or "ios"
     auto_setup: bool = True  # auto-install/fix portal before each run
+    hdc_path: str = "hdc"  # HarmonyOS HDC binary path (ignored on other platforms)
+    screenshot_method: str = "auto"  # HarmonyOS: "auto", "snapshot", or "screenCap"
 
 
 @dataclass
@@ -243,6 +264,13 @@ class MobileConfig:
                 temperature=0.2,
                 kwargs={},
             ),
+            # fast_game_agent 默认 profile，可与 fast_agent 设为不同模型以优化成本
+            "fast_game_agent": LLMProfile(
+                provider="GoogleGenAI",
+                model="gemini-3.1-flash-lite-preview",
+                temperature=0.2,
+                kwargs={},
+            ),
             "app_opener": LLMProfile(
                 provider="GoogleGenAI",
                 model="gemini-3.1-flash-lite-preview",
@@ -282,6 +310,14 @@ class MobileConfig:
             FastAgentConfig(**fast_agent_data) if fast_agent_data else FastAgentConfig()
         )
 
+        # 从 YAML/JSON 配置解析 fast_game_agent 子配置块
+        fast_game_agent_data = agent_data.get("fast_game_agent", {})
+        fast_game_agent_config = (
+            FastGameAgentConfig(**fast_game_agent_data)
+            if fast_game_agent_data
+            else FastGameAgentConfig()
+        )
+
         manager_data = agent_data.get("manager", {})
         manager_config = (
             ManagerConfig(**manager_data) if manager_data else ManagerConfig()
@@ -308,7 +344,9 @@ class MobileConfig:
             use_normalized_coordinates=agent_data.get(
                 "use_normalized_coordinates", False
             ),
+            game_mode=agent_data.get("game_mode", False),  # 从 YAML agent.game_mode 读取
             fast_agent=fast_agent_config,
+            fast_game_agent=fast_game_agent_config,  # 游戏模式子配置
             manager=manager_config,
             executor=executor_config,
             app_cards=app_cards_config,

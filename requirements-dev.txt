@@ -1,0 +1,15 @@
+# === Development & Linting ===
+black==25.9.0
+ruff>=0.13.0
+mypy>=1.0.0
+bandit>=1.8.6
+safety>=3.2.11
+
+# === Tracing (Langfuse) ===
+langfuse==3.12.1
+openinference-instrumentation-llama-index>=3.0.0
+llama-index-instrumentation
+
+# === Anthropic Provider ===
+anthropic>=0.67.0
+llama-index-llms-anthropic>=0.8.6,<0.9.0

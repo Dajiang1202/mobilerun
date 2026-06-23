@@ -1,0 +1,5 @@
+{
+  "resolution": [0, 0],
+  "board_rect_px": [0, 0, 0, 0],
+  "note": "占位文件。用 gameauto/tools/xiangqi_finalize_board.py 根据 rois.json[board_rect] 生成；或直接手填。board_rect_px = [col1的x, row10(黑方顶)的y, col9的x, row1(红方底)的y]，单位为标定分辨率下的像素。resolution = 标定所用截图的 [宽, 高]。"
+}

@@ -12,12 +12,23 @@ MODEL_SCREENSHOT_MAX_SIDE = 2048
 
 def image_dimensions(image: bytes) -> tuple[int, int]:
     """Return ``(width, height)`` for PNG or JPEG bytes."""
+    # Fast path: try magic number first
     if image.startswith(b"\x89PNG\r\n\x1a\n") and len(image) >= 24:
         width, height = struct.unpack(">II", image[16:24])
         return int(width), int(height)
 
     if image.startswith(b"\xff\xd8"):
-        return _jpeg_dimensions(image)
+        try:
+            return _jpeg_dimensions(image)
+        except ValueError:
+            pass
+
+    # Fallback: use PIL for more robust parsing (handles edge cases and HarmonyOS screenshots)
+    try:
+        with Image.open(BytesIO(image)) as img:
+            return img.width, img.height
+    except Exception:
+        pass
 
     raise ValueError("Unsupported screenshot image format. Expected PNG or JPEG.")
 
@@ -55,9 +66,17 @@ def resize_image_to_max_side(
 
 
 def resize_image_to_max_side_with_grid(
-    image: bytes, max_side: int = MODEL_SCREENSHOT_MAX_SIDE, divisions: int = 10
+    image: bytes,
+    max_side: int = MODEL_SCREENSHOT_MAX_SIDE,
+    divisions: int = 10,
+    # use_normalized: True 时网格标签显示 [0-1000] 归一化坐标而非实际像素
+    use_normalized: bool = False,
 ) -> bytes:
-    """Resize image and overlay a model-only coordinate grid."""
+    """Resize image and overlay a coordinate grid.
+
+    When *use_normalized* is True, grid labels show [0-1000] normalized values
+    instead of pixel coordinates.
+    """
     width, height = image_dimensions(image)
     target_width, target_height = fit_dimensions_to_max_side(width, height, max_side)
 
@@ -69,13 +88,18 @@ def resize_image_to_max_side_with_grid(
                 Image.Resampling.LANCZOS,
             )
 
-        _draw_coordinate_grid(screenshot, divisions=divisions)
+        # 传递 use_normalized 参数以控制网格标签格式（像素 vs [0-1000]）
+        _draw_coordinate_grid(
+            screenshot, divisions=divisions, use_normalized=use_normalized
+        )
         output = BytesIO()
         screenshot.save(output, format="PNG")
         return output.getvalue()
 
 
-def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
+def _draw_coordinate_grid(
+    image: Image.Image, divisions: int, use_normalized: bool = False  # 归一化坐标模式
+) -> None:
     width, height = image.size
     if divisions <= 0 or width <= 0 or height <= 0:
         return
@@ -90,6 +114,8 @@ def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
     label_shadow = (0, 0, 0, 190)
     label_bg = (0, 0, 0, 115)
 
+    max_norm = 1000  # 归一化坐标系最大值
+
     for index in range(divisions + 1):
         x = round(index * (width - 1) / divisions)
         y = round(index * (height - 1) / divisions)
@@ -98,9 +124,18 @@ def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
         )
         draw.line([(x, 0), (x, height - 1)], fill=color, width=1)
         draw.line([(0, y), (width - 1, y)], fill=color, width=1)
+
+        # 归一化模式: 标签显示 0~1000 的相对坐标（分辨率无关）
+        if use_normalized:
+            x_label = f"x={round(index * max_norm / divisions)}"
+            y_label = f"y={round(index * max_norm / divisions)}"
+        else:
+            x_label = f"x={x}"
+            y_label = f"y={y}"
+
         _draw_grid_label(
             draw,
-            f"x={x}",
+            x_label,
             (min(x + 3, width - 38), 4),
             font,
             label_fill,
@@ -109,7 +144,7 @@ def _draw_coordinate_grid(image: Image.Image, divisions: int) -> None:
         )
         _draw_grid_label(
             draw,
-            f"y={y}",
+            y_label,
             (4, min(y + 3, height - 14)),
             font,
             label_fill,
