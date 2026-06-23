@@ -127,6 +127,8 @@ def example_3_preview():
     fps_last = time.perf_counter()
     fps_count = 0
     fps_current = 0.0
+    # 跟踪当前窗口尺寸，横竖屏切换时自动调整
+    current_w, current_h = ow, oh
 
     print(f"截图保存目录: {save_dir}")
 
@@ -145,6 +147,15 @@ def example_3_preview():
             fps_last = now
 
         fh, fw = frame.shape[:2]
+
+        # 横竖屏切换时自动调整预览窗口
+        if fw != current_w or fh != current_h:
+            current_w, current_h = fw, fh
+            cv2.resizeWindow("Scrcpy Preview",
+                             max(1, int(fw * PREVIEW_SCALE)),
+                             max(1, int(fh * PREVIEW_SCALE)))
+            print(f"  分辨率变更: 输出 {fw}x{fh}  (原生 {resolution()[0]}x{resolution()[1]})")
+
         cv2.setWindowTitle(
             "Scrcpy Preview",
             f"Scrcpy Preview — {fw}x{fh} @ {fps_current:.0f} FPS | 按 q 退出 按 s 截图"
