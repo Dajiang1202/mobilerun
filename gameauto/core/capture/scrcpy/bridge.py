@@ -222,11 +222,11 @@ def _start_stream():
                         continue
                     last_frame_time = now
 
-                    # Capture native resolution from first frame
-                    if not _native_w:
+                    # Detect resolution change (portrait↔landscape rotation)
+                    if not _native_w or frame.width != _native_w or frame.height != _native_h:
                         _native_w, _native_h = frame.width, frame.height
                         _output_w, _output_h = _native_w // _scale, _native_h // _scale
-                        log.info("Native: %dx%d, output: %dx%d (scale=%d)",
+                        log.info("Screen resolution: %dx%d → output %dx%d (scale=%d)",
                                  _native_w, _native_h, _output_w, _output_h, _scale)
 
                     # Convert + scale

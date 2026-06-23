@@ -63,6 +63,10 @@ class ScrcpyCapture(BaseCapture):
 
     @property
     def native_resolution(self) -> tuple[int, int]:
+        # Dynamic: bridge globals update on screen rotation (portrait↔landscape)
+        w, h = resolution()
+        if w and h:
+            self._w, self._h = w, h  # keep cached in sync
         return (self._w, self._h)
 
     def _connect_sync(self) -> None:
