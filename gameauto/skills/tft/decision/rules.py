@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import math
-import random
 from typing import Any
 
 from gameauto.core.orchestration.base import Action, GameState
@@ -109,7 +108,8 @@ class TftRules:
         """Run all L1 decisions for a PLANNING frame.
 
         Args:
-            perception: Parsed perception result (gold, level, hp, shop_units, etc.)
+            perception: Parsed perception result (gold, level, hp, shop_units,
+                        gray_slots, stage_text, etc.)
             context: Current game context.
 
         Returns:
@@ -121,6 +121,7 @@ class TftRules:
         level = perception.get("level") or 1
         hp = perception.get("hp") or 100
         shop_units: list[str | None] = perception.get("shop_units", [])
+        gray_slots: list[bool] = perception.get("gray_slots", [])
         timer_sec = perception.get("timer_seconds")
 
         # If timer is very low (< 5s), skip complex actions
@@ -128,16 +129,15 @@ class TftRules:
             logger.debug("Timer low (%ds), skipping actions", timer_sec)
             return actions
 
-        # ── 1. Shop: buy core champions ────────────────────────────
-        shop_actions = self._decide_shop(gold, shop_units)
+        # ── 1. Shop: buy core champions (with gray slot filtering) ──
+        shop_actions, gold_spent = self._decide_shop(gold, shop_units, gray_slots)
         actions.extend(shop_actions)
-        gold_spent = sum(1 for a in shop_actions if a.type == "tap")  # rough estimate
 
         remaining_gold = gold - gold_spent
 
         # ── 2. Level up ────────────────────────────────────────────
-        # Parse current round from context or timer
-        round_key = self._estimate_round(context)
+        # 优先使用 OCR 读到的 stage-round 文本，fallback 到 round_num 估算
+        round_key = self._estimate_round(perception, context)
 
         level_actions = self._decide_level(remaining_gold, level, hp, round_key)
         actions.extend(level_actions)
@@ -155,16 +155,38 @@ class TftRules:
     # ── Shop decision ──────────────────────────────────────────────────
 
     def _decide_shop(
-        self, gold: int, shop_units: list[str | None],
-    ) -> list[Action]:
-        """Decide which shop units to buy."""
+        self,
+        gold: int,
+        shop_units: list[str | None],
+        gray_slots: list[bool] | None = None,
+    ) -> tuple[list[Action], int]:
+        """Decide which shop units to buy.
+
+        Args:
+            gold: Current gold amount.
+            shop_units: List of 5 shop slot champion names (None = empty).
+            gray_slots: List of 5 booleans — True = gray/can't afford.
+
+        Returns:
+            (actions, gold_spent) — actions to execute and total gold spent.
+        """
         actions: list[Action] = []
+        gold_spent = 0
 
         if not shop_units:
-            return actions
+            return actions, gold_spent
+
+        # Ensure gray_slots matches shop_units length
+        if gray_slots is None or len(gray_slots) < len(shop_units):
+            gray_slots = [False] * len(shop_units)
 
         for i, unit_name in enumerate(shop_units):
             if unit_name is None:
+                continue
+
+            # 灰色检测: 买不起的棋子，跳过（避免误买）
+            if i < len(gray_slots) and gray_slots[i]:
+                logger.debug("Shop: slot %d (%s) is gray, skip", i, unit_name)
                 continue
 
             # Fuzzy match against core champions
@@ -192,15 +214,16 @@ class TftRules:
             actions.append(Action(
                 type="tap",
                 x1=x, y1=y,
-                duration_ms=80 + random.randint(0, 30),
-                description=f"Buy {matched} (slot {i})",
+                duration_ms=150,  # HOS 最小 150ms（斗地主验证）
+                description=f"Buy {matched} (slot {i}, cost={cost})",
             ))
 
-            # Track ownership
+            # Track ownership & spending
             self._owned[matched] = owned + 1
             gold -= cost
+            gold_spent += cost
 
-        return actions
+        return actions, gold_spent
 
     # ── Level decision ─────────────────────────────────────────────────
 
@@ -227,7 +250,7 @@ class TftRules:
         actions.append(Action(
             type="tap",
             x1=x, y1=y,
-            duration_ms=80 + random.randint(0, 30),
+            duration_ms=150,  # HOS 最小 150ms（斗地主验证）
             description=f"Buy XP (Lv {level} → target {target})",
         ))
 
@@ -271,7 +294,7 @@ class TftRules:
         actions.append(Action(
             type="tap",
             x1=x, y1=y,
-            duration_ms=80 + random.randint(0, 30),
+            duration_ms=150,  # HOS 最小 150ms（斗地主验证）
             description=f"Refresh shop (gold={gold})",
         ))
 
@@ -319,16 +342,30 @@ class TftRules:
 
         return None
 
-    def _estimate_round(self, context: GameContext) -> str:
-        """Estimate current game stage from round number.
+    def _estimate_round(
+        self,
+        perception: dict[str, Any] | None = None,
+        context: GameContext | None = None,
+    ) -> str:
+        """Estimate current game stage.
 
-        A full TFT game has stages 1-6, each with ~7 rounds.
-        We approximate stage = 1 + context.round_num // 7.
+        优先使用 OCR 读到的 stage_text（如 "3-5"），
+        fallback 到 round_num 估算（stage = 1 + round_num // 7）。
         """
-        r = context.round_num
-        stage = 1 + r // 7
-        sub = 1 + (r % 7)
-        return f"{stage}-{sub}"
+        # 优先 OCR 读到的 stage-round 文字
+        if perception:
+            stage_text = perception.get("stage_text")
+            if stage_text:
+                return stage_text
+
+        # fallback: context.round_num
+        if context:
+            r = context.round_num
+            stage = 1 + r // 7
+            sub = 1 + (r % 7)
+            return f"{stage}-{sub}"
+
+        return "1-1"
 
     def reset_owned(self) -> None:
         """Reset ownership tracking (call at game start)."""

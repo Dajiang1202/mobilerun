@@ -81,6 +81,8 @@ async def main():
             model=vlm_cfg.get("model", "qwen3-vl-flash"),
             base_url=vlm_cfg.get("base_url", ""),
             api_key=vlm_cfg.get("api_key", ""),
+            max_image_side=vlm_cfg.get("image", {}).get("max_side", 1024),
+            image_detail=vlm_cfg.get("image", {}).get("detail", "auto"),
         )
     skill_dir = Path(__file__).parent / "skills" / "xiangqi"
     perception = make_perception(

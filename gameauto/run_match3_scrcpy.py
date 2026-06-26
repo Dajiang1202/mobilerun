@@ -151,6 +151,8 @@ async def main():
         model=vlm_cfg.get("model", "gpt-4o"),
         base_url=vlm_cfg.get("base_url", ""),
         api_key=vlm_cfg.get("api_key", ""),
+        max_image_side=vlm_cfg.get("image", {}).get("max_side", 1024),
+        image_detail=vlm_cfg.get("image", {}).get("detail", "auto"),
     )
 
     # Match3Perception: 组装 jinja2 prompt → 调 VLM → 解析 JSON → 纠错

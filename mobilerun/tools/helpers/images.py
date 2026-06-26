@@ -7,7 +7,7 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont
 
-MODEL_SCREENSHOT_MAX_SIDE = 2048
+MODEL_SCREENSHOT_MAX_SIDE = 1024
 
 
 def image_dimensions(image: bytes) -> tuple[int, int]:
@@ -56,7 +56,7 @@ def resize_image_to_max_side(
         return image
 
     with Image.open(BytesIO(image)) as source:
-        resized = source.convert("RGBA").resize(
+        resized = source.convert("RGB").resize(
             (target_width, target_height),
             Image.Resampling.LANCZOS,
         )
@@ -92,8 +92,11 @@ def resize_image_to_max_side_with_grid(
         _draw_coordinate_grid(
             screenshot, divisions=divisions, use_normalized=use_normalized
         )
+        # Flatten RGBA → RGB (drop alpha channel — screenshots don't need it)
+        rgb = Image.new("RGB", screenshot.size, (255, 255, 255))
+        rgb.paste(screenshot, screenshot)
         output = BytesIO()
-        screenshot.save(output, format="PNG")
+        rgb.save(output, format="PNG")
         return output.getvalue()
 
 

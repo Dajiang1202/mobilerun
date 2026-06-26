@@ -11,6 +11,10 @@ vlm:
   model: gpt-4o
   base_url: ""
   api_key: ""
+  # Image preprocessing (controls token cost for vision models)
+  image:
+    max_side: 1024      # resize so longest edge ≤ N pixels (0 = no resize)
+    detail: auto         # OpenAI detail: "low" (85 tokens) / "high" / "auto"
 
 perception:
   prompt_path: skills/match3/prompts/generic.jinja2
