@@ -5,19 +5,15 @@
 控制台打印识别结果与决策点。视频墙上时钟异步播放, 算法慢则自动跳帧,
 天然模拟实时性。
 
-快速开始:
-    python run_tft_replay.py path/to/tft.mp4                  # stub 感知, 1x
-    python run_tft_replay.py tft.mp4 --perceive ocr           # OCR 感知 (需 8089 服务)
-    python run_tft_replay.py tft.mp4 --speed 2 --show         # 2x 快放 + 预览窗
-    python run_tft_replay.py tft.mp4 --perceive adapter       # 接现有 TftPerception
-    python run_tft_replay.py tft.mp4 --no-record --quiet      # 只打 actions
+用法: 直接改下面 ══ 配置区 ══ 里的变量, 然后
+    python run_tft_replay.py
 
-换感知/决策方法 = 改下面的 PERCEIVE_BACKENDS / DECIDE_BACKENDS 查表或新增条目。
+换感知/决策方法 = 改 PERCEIVE / DECIDE 变量, 或在下方 PERCEIVE_BACKENDS /
+DECIDE_BACKENDS 查表里新增条目。
 """
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import base64
 import json
@@ -40,6 +36,30 @@ from gameauto.tools.replay_driver import (
     stub_perceive,
     stub_decide,
 )
+
+# ═══════════════════════════════════════════════════════════════════════
+#  配置区 —— 改这里即可, 不用命令行传参
+# ═══════════════════════════════════════════════════════════════════════
+
+# 视频文件路径 (30fps TFT 录像)
+VIDEO_PATH = r"D:\gameauto\videos\tft_sample.mp4"
+
+# 感知 / 决策后端 (见下方 PERCEIVE_BACKENDS / DECIDE_BACKENDS 的可选键)
+PERCEIVE = "ocr"     # "stub" | "ocr" | "adapter"
+DECIDE = "stub"      # "stub" | "adapter"
+
+# 播放与节奏
+SPEED = 1.0          # 播放倍速 (1.0=实时, 2.0=快一倍, 0.5=慢放)
+LOOP = False         # 视频结束后是否循环
+TICK_INTERVAL = 0.3  # driver tick 最小间隔(s); 0=尽可能快, 由感知限速
+
+# 输出
+SHOW = False         # 是否显示 cv2 预览窗
+RECORD = True        # 是否落盘 (logs/tft_replay_*/...)
+VERBOSE = False      # 打原始 state 全量
+QUIET = False        # 只打 actions
+
+# ═══════════════════════════════════════════════════════════════════════
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -179,22 +199,6 @@ DECIDE_BACKENDS = {
 # ═══════════════════════════════════════════════════════════════════════
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="TFT 视频回放工作台")
-    parser.add_argument("video", type=str, help="TFT 游戏视频路径 (30fps)")
-    parser.add_argument("--speed", type=float, default=1.0, help="播放倍速 (1.0=实时)")
-    parser.add_argument("--loop", action="store_true", help="视频循环")
-    parser.add_argument("--tick-interval", type=float, default=0.0,
-                        help="driver tick 最小间隔(s), 0=尽可能快由感知限速")
-    parser.add_argument("--perceive", choices=list(PERCEIVE_BACKENDS), default="stub",
-                        help="感知后端")
-    parser.add_argument("--decide", choices=list(DECIDE_BACKENDS), default="stub",
-                        help="决策后端")
-    parser.add_argument("--show", action="store_true", help="显示 cv2 预览窗")
-    parser.add_argument("--no-record", action="store_true", help="不落盘")
-    parser.add_argument("--verbose", action="store_true", help="打原始 state 全量")
-    parser.add_argument("--quiet", action="store_true", help="只打 actions")
-    args = parser.parse_args()
-
     # Windows 控制台默认 GBK, 强制 UTF-8 让中文 state/日志不乱码;
     # 行缓冲: 管道/重定向时也能实时看到识别结果
     try:
@@ -208,26 +212,35 @@ async def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s | %(message)s",
     )
 
-    video_path = Path(args.video)
-    if not video_path.is_file():
-        print(f"视频不存在: {video_path}")
+    # ── 校验配置 ──────────────────────────────────────────────────────
+    if PERCEIVE not in PERCEIVE_BACKENDS:
+        print(f"PERCEIVE={PERCEIVE!r} 无效, 可选: {list(PERCEIVE_BACKENDS)}")
+        sys.exit(1)
+    if DECIDE not in DECIDE_BACKENDS:
+        print(f"DECIDE={DECIDE!r} 无效, 可选: {list(DECIDE_BACKENDS)}")
         sys.exit(1)
 
-    perceive = PERCEIVE_BACKENDS[args.perceive]
-    decide = DECIDE_BACKENDS[args.decide]
+    video_path = Path(VIDEO_PATH)
+    if not video_path.is_file():
+        print(f"视频不存在: {video_path}")
+        print(f"请改脚本顶部 VIDEO_PATH 指向你的 TFT 录像")
+        sys.exit(1)
 
-    capture = VideoCapture(str(video_path), speed=args.speed, loop=args.loop)
+    perceive = PERCEIVE_BACKENDS[PERCEIVE]
+    decide = DECIDE_BACKENDS[DECIDE]
+
+    capture = VideoCapture(str(video_path), speed=SPEED, loop=LOOP)
     await capture.connect()
 
     driver = ReplayDriver(
         capture,
         perceive=perceive,
         decide=decide,
-        tick_interval=args.tick_interval,
-        record=not args.no_record,
-        show=args.show,
-        verbose=args.verbose,
-        quiet=args.quiet,
+        tick_interval=TICK_INTERVAL,
+        record=RECORD,
+        show=SHOW,
+        verbose=VERBOSE,
+        quiet=QUIET,
     )
 
     try:
