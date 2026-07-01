@@ -231,6 +231,9 @@ HP_GREEN_TOL = 30                # RGB 各通道容差; 后排棋子血条更暗
 HP_BAR_MIN_RATIO = 6.0           # 血条长宽比下限 (w/h); 实测真图约23
 HP_MIN_WIDTH = 12                # 血条最小像素宽 (过滤小噪点)
 HP_CLICK_BELOW = 3.0             # 点击点距血条底部 = 血条高度 × 此值
+HP_OCR_BELOW = True              # 对每条血条下方区域做 OCR, 把文字标在血条旁 (验证用)
+HP_OCR_BELOW_W = 1.2             # OCR 区域宽 = 血条宽 × 此值
+HP_OCR_BELOW_H = 1.1             # OCR 区域高 = 血条宽 × 此值 (棋子名/花费区)
 
 
 def _flat_roi(rois: dict, section: str, key: str):
@@ -287,8 +290,8 @@ def champions_perceive(frame_bgr: np.ndarray) -> dict:
     rois = _load_rois()
     h, w = frame_bgr.shape[:2]
 
+    # 搜索区: 优先用标注的 ocr:own_board; 没标就搜整帧 (board.full 默认太窄, 只盖部分行)
     roi = (_flat_roi(rois, "ocr", "own_board")
-           or _flat_roi(rois, "board", "full")
            or (0.0, 0.0, 1.0, 1.0))
     L = int(roi[0] * w); T = int(roi[1] * h)
     R = int(roi[2] * w); B = int(roi[3] * h)
@@ -298,20 +301,43 @@ def champions_perceive(frame_bgr: np.ndarray) -> dict:
 
     bars, mask = _detect_green_bars(crop)
 
+    # 转回整帧坐标
+    fbars = [(L + x1, T + y1, L + x2, T + y2) for (x1, y1, x2, y2) in bars]
+
+    # 可选: 每条血条下方区域 OCR (并行), 把文字标在血条旁
+    ocr_texts: list[str] = []
+    if HP_OCR_BELOW and fbars:
+        def _ocr_below(bar):
+            fx1, fy1, fx2, fy2 = bar
+            bw = fx2 - fx1
+            cy1 = fy2 + int(bw * 0.2)
+            cy2 = cy1 + int(bw * HP_OCR_BELOW_H)
+            cx1 = max(0, (fx1 + fx2) // 2 - int(bw * HP_OCR_BELOW_W / 2))
+            cx2 = min(w, (fx1 + fx2) // 2 + int(bw * HP_OCR_BELOW_W / 2))
+            crop_region = frame_bgr[max(0, cy1):max(0, cy2), cx1:cx2]
+            if crop_region.size == 0:
+                return ""
+            txt, _ = _ocr_image(crop_region)
+            return txt.strip()
+        ocr_texts = list(_OCR_POOL.map(_ocr_below, fbars))
+
     overlays = []
-    details = [f"检测到 {len(bars)} 个血条 (搜索区 ocr:own_board)"]
-    for (x1, y1, x2, y2) in bars:
-        # 转回整帧坐标
-        fx1, fy1 = L + x1, T + y1
-        fx2, fy2 = L + x2, T + y2
-        bar_h = y2 - y1
-        overlays.append({"box": (fx1, fy1, fx2, fy2), "label": "血条"})
-        # 点击点: 血条底部正下方 (棋子身体), 用小十字标记
+    details = [f"检测到 {len(fbars)} 个血条 (搜索区 ocr:own_board)"]
+    for i, (fx1, fy1, fx2, fy2) in enumerate(fbars):
+        bar_h = fy2 - fy1
+        overlays.append({"box": (fx1, fy1, fx2, fy2), "label": f"血条{i}"})
+        # 血条下方 OCR 文字 (如有)
+        txt = ocr_texts[i] if i < len(ocr_texts) else ""
+        if txt:
+            overlays.append({"box": (fx1, fy2 + 4, fx2, fy2 + 4),
+                             "label": txt})
+        # 点击点: 血条底部正下方 (棋子身体), 用小方块标记
         cx = (fx1 + fx2) // 2
         cy = int(fy2 + bar_h * HP_CLICK_BELOW)
         s = 8
         overlays.append({"box": (cx - s, cy - s, cx + s, cy + s), "label": "点"})
-        details.append(f"  血条 ({fx1},{fy1})-({fx2},{fy2})  点击→({cx},{cy})")
+        details.append(f"  血条{i} ({fx1},{fy1})-({fx2},{fy2})  点击→({cx},{cy})"
+                       + (f"  OCR={txt!r}" if txt else "  OCR=''"))
 
     # champion 弹名区域 (如有标注), 画出来便于核对几何
     champ_roi = _flat_roi(rois, "ocr", "champion")
@@ -326,7 +352,7 @@ def champions_perceive(frame_bgr: np.ndarray) -> dict:
     debug_img = cv2.bitwise_and(crop, crop, mask=mask)
 
     return {
-        "champion_count": len(bars),
+        "champion_count": len(fbars),
         "overlays": overlays,
         "details": details,
         "debug_image": debug_img,
