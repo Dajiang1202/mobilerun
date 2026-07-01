@@ -54,8 +54,8 @@ LOOP = False         # 视频结束后是否循环
 TICK_INTERVAL = 0.3  # driver tick 最小间隔(s); 0=尽可能快, 由感知限速
 
 # 输出
-SHOW = False         # 是否显示 cv2 预览窗
-RECORD = True        # 是否落盘 (logs/tft_replay_*/...)
+SHOW = True        # 是否显示 cv2 预览窗
+RECORD = False       # 是否落盘 (logs/tft_replay_*/...)
 VERBOSE = False      # 打原始 state 全量
 QUIET = False        # 只打 actions
 
@@ -147,7 +147,10 @@ def _ocr_image(crop_bgr: np.ndarray) -> tuple[str, int]:
 
 
 def ocr_perceive(frame_bgr: np.ndarray) -> dict:
-    """OCR 感知: 并行识别 gold/level/hp/timer + 5 商店槽。
+    """OCR 感知: 并行识别各 OCR 区域。
+
+    ROI 来源: 优先 rois.yaml 的 ocr: section (annotate_tft_ocr_rois.py 标注的,
+    扁平 key→box); 没有则回退到 _OCR_KEYS 的 info/shop 路径。
 
     返回 state 含:
       - ocr: {roi名: 文本}                 便于决策/简要打印
@@ -161,18 +164,26 @@ def ocr_perceive(frame_bgr: np.ndarray) -> dict:
     rois = _load_rois()
     h, w = frame_bgr.shape[:2]
 
-    def _resolve(path):
-        cur = rois
-        for seg in path:
-            cur = cur[seg]
-        return cur
+    # ROI 解析: ocr: section 优先 (扁平), 否则回退到 _OCR_KEYS 嵌套路径
+    ocr_section = rois.get("ocr") if isinstance(rois, dict) else None
+    if ocr_section:
+        roi_items = [(key, box) for key, box in ocr_section.items()]
+    else:
+        def _resolve(path):
+            cur = rois
+            for seg in path:
+                cur = cur[seg]
+            return cur
+        roi_items = [(key, _resolve(path)) for key, path in _OCR_KEYS]
 
     # 算出每个 ROI 的像素框 + 裁剪
     items = []
-    for key, path in _OCR_KEYS:
-        roi = _resolve(path)
-        l = int(roi["left"] * w); t = int(roi["top"] * h)
-        r = int(roi["right"] * w); b = int(roi["bottom"] * h)
+    for key, roi in roi_items:
+        try:
+            l = int(roi["left"] * w); t = int(roi["top"] * h)
+            r = int(roi["right"] * w); b = int(roi["bottom"] * h)
+        except Exception:
+            continue
         crop = frame_bgr[t:b, l:r]
         items.append((key, (l, t, r, b), crop))
 
