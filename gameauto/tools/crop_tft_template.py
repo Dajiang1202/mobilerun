@@ -288,19 +288,12 @@ class Cropper:
 
 
 def main():
-    import argparse
-    ap = argparse.ArgumentParser(description="TFT 模板裁剪 (清单驱动+放大镜+无损)")
-    ap.add_argument("--screens", default=SCREENS_DIR, help="游戏截图目录")
-    ap.add_argument("--out", default=str(OUT_DIR), help="模板输出目录")
-    ap.add_argument("--yaml", default=str(ROIS_YAML), help="rois.yaml 路径")
-    args = ap.parse_args()
-
-    screens = load_screenshots(Path(args.screens))
+    screens = load_screenshots(Path(SCREENS_DIR))
     if not screens:
-        print(f"错误: 在 {args.screens} 找不到截图 (png/jpg)。用 --screens 指定。")
+        print(f"错误: 在 {SCREENS_DIR} 找不到截图 (png/jpg)。改脚本顶部 SCREENS_DIR。")
         sys.exit(1)
 
-    Cropper(screens, build_checklist(), Path(args.out), Path(args.yaml)).run()
+    Cropper(screens, build_checklist(), OUT_DIR, ROIS_YAML).run()
 
 
 if __name__ == "__main__":

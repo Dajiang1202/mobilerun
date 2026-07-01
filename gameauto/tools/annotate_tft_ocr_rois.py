@@ -54,21 +54,15 @@ OCR_ROIS: list[tuple[str, str]] = [
 
 
 def main():
-    import argparse
-    ap = argparse.ArgumentParser(description="TFT OCR ROI 标注 → rois.yaml ocr: section")
-    ap.add_argument("--screens", default=SCREENS_DIR, help="游戏截图目录")
-    ap.add_argument("--yaml", default=str(ROIS_YAML), help="rois.yaml 路径")
-    args = ap.parse_args()
-
-    screens = load_screenshots(Path(args.screens))
+    screens = load_screenshots(Path(SCREENS_DIR))
     if not screens:
-        print(f"错误: 在 {args.screens} 找不到截图 (png/jpg)。用 --screens 指定。")
+        print(f"错误: 在 {SCREENS_DIR} 找不到截图 (png/jpg)。改脚本顶部 SCREENS_DIR。")
         sys.exit(1)
 
     checklist = [{"key": k, "desc": d} for k, d in OCR_ROIS]
     RoiAnnotator(
         screens, checklist,
-        yaml_path=Path(args.yaml),
+        yaml_path=ROIS_YAML,
         section="ocr",
         win_title="OCR ROI Annotator (框选→保存)",
     ).run()
