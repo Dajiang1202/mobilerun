@@ -55,6 +55,7 @@ TICK_INTERVAL = 0.3  # driver tick 最小间隔(s); 0=尽可能快, 由感知限
 
 # 输出
 SHOW = True        # 是否显示 cv2 预览窗
+SHOW_DEBUG = False  # 是否显示血条绿色掩膜 debug 窗 (调容差时再开)
 RECORD = False       # 是否落盘 (logs/tft_replay_*/...)
 VERBOSE = False      # 打原始 state 全量
 QUIET = False        # 只打 actions
@@ -349,7 +350,8 @@ def champions_perceive(frame_bgr: np.ndarray) -> dict:
         })
 
     # debug 图: 掩膜命中的绿色像素 (原图色, 其余黑), 方便调 HP_GREEN_TOL
-    debug_img = cv2.bitwise_and(crop, crop, mask=mask)
+    # SHOW_DEBUG=False 时不产出 → 不开 debug 窗
+    debug_img = cv2.bitwise_and(crop, crop, mask=mask) if SHOW_DEBUG else None
 
     return {
         "champion_count": len(fbars),
