@@ -168,6 +168,10 @@ class ReplayDriver:
         self._print(ts, fidx, advanced, state, actions, dt_perceive, dt_decide)
 
         if self._show:
+            # perceive 可返回 debug_image (BGR ndarray) → 单独窗口显示, 方便调参
+            dbg = state.get("debug_image")
+            if dbg is not None:
+                cv2.imshow("TFT Replay - debug", dbg)
             self._preview(frame, ts, advanced, state)
 
         # 视频已结束且这一帧是最后一帧 → 再 tick 一次拿不到新帧, 停

@@ -222,9 +222,121 @@ def _first_int(text: str) -> int | None:
     return int(m.group()) if m else None
 
 
+# ── 棋子血条检测 (champions 后端调参区) ──────────────────────────────
+# 思路: 我方棋子头顶有绿色血条 (长宽比≥6), 检测到血条 = 定位到棋子。
+# 血条下方就是棋子, 点击后 champion 区域弹出棋子名 (真机流程)。
+# 回放里先验证检测: 主窗画血条框+点击点, debug 窗画绿色掩膜。
+HP_GREEN_RGB = (131, 222, 117)   # 我方血条绿 (RGB)
+HP_GREEN_TOL = 10                # RGB 各通道容差 (正负)
+HP_BAR_MIN_RATIO = 6.0           # 血条长宽比下限 (w/h)
+HP_MIN_WIDTH = 12                # 血条最小像素宽 (过滤小噪点)
+HP_CLICK_BELOW = 3.0             # 点击点距血条底部 = 血条高度 × 此值
+
+
+def _flat_roi(rois: dict, section: str, key: str):
+    """从 rois(dict) 读 [section][key] 的比例 ROI, 没有返回 None。"""
+    sec = rois.get(section) if isinstance(rois, dict) else None
+    if not sec:
+        return None
+    box = sec.get(key)
+    if not box:
+        return None
+    try:
+        return (float(box["left"]), float(box["top"]),
+                float(box["right"]), float(box["bottom"]))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _detect_green_bars(crop_bgr: np.ndarray):
+    """在 BGR 小图里检测绿色长条, 返回 [(x1,y1,x2,y2), ...] (crop 内坐标) + 掩膜。"""
+    r = crop_bgr[:, :, 2].astype(np.int16)
+    g = crop_bgr[:, :, 1].astype(np.int16)
+    b = crop_bgr[:, :, 0].astype(np.int16)
+    gr, gg, gb = HP_GREEN_RGB
+    mask = (
+        (np.abs(r - gr) <= HP_GREEN_TOL)
+        & (np.abs(g - gg) <= HP_GREEN_TOL)
+        & (np.abs(b - gb) <= HP_GREEN_TOL)
+    ).astype(np.uint8) * 255
+    # 水平方向连接血条断段
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    bars = []
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for c in cnts:
+        x, y, bw, bh = cv2.boundingRect(c)
+        if bw < HP_MIN_WIDTH or bh < 2:
+            continue
+        if bw / bh < HP_BAR_MIN_RATIO:
+            continue
+        bars.append((x, y, x + bw, y + bh))
+    return bars, mask
+
+
+def champions_perceive(frame_bgr: np.ndarray) -> dict:
+    """检测我方棋子血条 → 定位棋子。
+
+    搜索区 ROI 来源 (优先): ocr:own_board (用标注工具画) → board:full → 整帧。
+    返回 state 含 champion_count / bars / overlays(血条框+点击点) /
+    debug_image(绿色掩膜, SHOW 时单独窗口显示) / details。
+    """
+    if frame_bgr is None:
+        return {}
+    rois = _load_rois()
+    h, w = frame_bgr.shape[:2]
+
+    roi = (_flat_roi(rois, "ocr", "own_board")
+           or _flat_roi(rois, "board", "full")
+           or (0.0, 0.0, 1.0, 1.0))
+    L = int(roi[0] * w); T = int(roi[1] * h)
+    R = int(roi[2] * w); B = int(roi[3] * h)
+    crop = frame_bgr[T:B, L:R]
+    if crop.size == 0:
+        return {"champion_count": 0, "overlays": [], "details": ["搜索区为空"]}
+
+    bars, mask = _detect_green_bars(crop)
+
+    overlays = []
+    details = [f"检测到 {len(bars)} 个血条 (搜索区 ocr:own_board)"]
+    for (x1, y1, x2, y2) in bars:
+        # 转回整帧坐标
+        fx1, fy1 = L + x1, T + y1
+        fx2, fy2 = L + x2, T + y2
+        bar_h = y2 - y1
+        overlays.append({"box": (fx1, fy1, fx2, fy2), "label": "血条"})
+        # 点击点: 血条底部正下方 (棋子身体), 用小十字标记
+        cx = (fx1 + fx2) // 2
+        cy = int(fy2 + bar_h * HP_CLICK_BELOW)
+        s = 8
+        overlays.append({"box": (cx - s, cy - s, cx + s, cy + s), "label": "点"})
+        details.append(f"  血条 ({fx1},{fy1})-({fx2},{fy2})  点击→({cx},{cy})")
+
+    # champion 弹名区域 (如有标注), 画出来便于核对几何
+    champ_roi = _flat_roi(rois, "ocr", "champion")
+    if champ_roi:
+        overlays.append({
+            "box": (int(champ_roi[0] * w), int(champ_roi[1] * h),
+                    int(champ_roi[2] * w), int(champ_roi[3] * h)),
+            "label": "champion区",
+        })
+
+    # debug 图: 掩膜命中的绿色像素 (原图色, 其余黑), 方便调 HP_GREEN_TOL
+    debug_img = cv2.bitwise_and(crop, crop, mask=mask)
+
+    return {
+        "champion_count": len(bars),
+        "overlays": overlays,
+        "details": details,
+        "debug_image": debug_img,
+    }
+
+
 PERCEIVE_BACKENDS = {
     "stub": stub_perceive,
     "ocr": ocr_perceive,
+    "champions": champions_perceive,
     "adapter": tft_adapter_perceive,
 }
 DECIDE_BACKENDS = {
