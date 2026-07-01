@@ -45,7 +45,7 @@ from gameauto.tools.replay_driver import (
 VIDEO_PATH = r"D:\gameauto\mobilerun\SVID_20260604_154906_1.mp4"
 
 # 感知 / 决策后端 (见下方 PERCEIVE_BACKENDS / DECIDE_BACKENDS 的可选键)
-PERCEIVE = "champions"  # "stub" | "ocr" | "champions" | "adapter"
+PERCEIVE = "full"  # "stub" | "ocr" | "champions" | "full" | "adapter"
 DECIDE = "stub"      # "stub" | "adapter"
 
 # 播放与节奏
@@ -231,7 +231,7 @@ HP_GREEN_TOL = 30                # RGB 各通道容差; 后排棋子血条更暗
 HP_BAR_MIN_RATIO = 6.0           # 血条长宽比下限 (w/h); 实测真图约23
 HP_MIN_WIDTH = 12                # 血条最小像素宽 (过滤小噪点)
 HP_CLICK_BELOW = 3.0             # 点击点距血条底部 = 血条高度 × 此值
-HP_OCR_BELOW = True              # 对每条血条下方区域做 OCR, 把文字标在血条旁 (验证用)
+HP_OCR_BELOW = False             # 血条下方OCR(血条本身无文字, 默认关; 名字需真机点击弹)
 HP_OCR_BELOW_W = 1.2             # OCR 区域宽 = 血条宽 × 此值
 HP_OCR_BELOW_H = 1.1             # OCR 区域高 = 血条宽 × 此值 (棋子名/花费区)
 
@@ -359,10 +359,34 @@ def champions_perceive(frame_bgr: np.ndarray) -> dict:
     }
 
 
+def full_perceive(frame_bgr: np.ndarray) -> dict:
+    """组合视图: 血条检测(champions) + 商店/经验/金币等 OCR 一起展示。
+
+    把 champions_perceive 的血条/点击点 和 ocr_perceive 的各 ROI 文本
+    合并到同一组 overlays/details, 主窗一次看清所有识别结果。
+    """
+    ocr_st = ocr_perceive(frame_bgr)
+    ch_st = champions_perceive(frame_bgr)
+    overlays = list(ch_st.get("overlays", [])) + list(ocr_st.get("overlays", []))
+    details = list(ch_st.get("details", [])) + list(ocr_st.get("details", []))
+    return {
+        "champion_count": ch_st.get("champion_count", 0),
+        "ocr": ocr_st.get("ocr", {}),
+        "gold": ocr_st.get("gold"),
+        "level": ocr_st.get("level"),
+        "hp": ocr_st.get("hp"),
+        "ocr_total_ms": ocr_st.get("ocr_total_ms", 0),
+        "overlays": overlays,
+        "details": details,
+        "debug_image": ch_st.get("debug_image"),
+    }
+
+
 PERCEIVE_BACKENDS = {
     "stub": stub_perceive,
     "ocr": ocr_perceive,
     "champions": champions_perceive,
+    "full": full_perceive,
     "adapter": tft_adapter_perceive,
 }
 DECIDE_BACKENDS = {
