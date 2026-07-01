@@ -168,7 +168,7 @@ class ReplayDriver:
         self._print(ts, fidx, advanced, state, actions, dt_perceive, dt_decide)
 
         if self._show:
-            self._preview(frame, ts, advanced)
+            self._preview(frame, ts, advanced, state)
 
         # 视频已结束且这一帧是最后一帧 → 再 tick 一次拿不到新帧, 停
         if self._cap.is_finished():
@@ -187,15 +187,29 @@ class ReplayDriver:
         if self._verbose:
             print(f"  state(full): {json.dumps(state, ensure_ascii=False)}")
         else:
-            print(f"  state: {_state_brief(state)}")
+            # overlays/details 是给预览/逐行打印用的, 不进单行 brief
+            brief = {k: v for k, v in state.items() if k not in ("overlays", "details")}
+            print(f"  state: {_state_brief(brief)}")
+        # perceive 可返回 details: list[str], 每行一条 (如每个 ROI 的文本+耗时)
+        for line in state.get("details", []):
+            print(f"    {line}")
         print(f"  actions: {_actions_brief(actions) or '(无)'}")
 
-    def _preview(self, frame: np.ndarray, ts: float, advanced: int) -> None:
+    def _preview(self, frame: np.ndarray, ts: float, advanced: int, state: dict) -> None:
+        disp = frame.copy()
+        # perceive 可返回 overlays: [{"box":(l,t,r,b), "label":str}, ...]
+        for ov in state.get("overlays", []):
+            l, t, r, b = ov.get("box", (0, 0, 0, 0))
+            cv2.rectangle(disp, (l, t), (r, b), (0, 255, 0), 2)
+            label = ov.get("label", "")
+            if label:
+                cv2.putText(disp, label, (l, max(0, t - 6)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         cv2.setWindowTitle(
             "TFT Replay",
             f"TFT Replay — t={ts:.2f}s dropped≈{advanced} (按 q 退出)",
         )
-        cv2.imshow("TFT Replay", frame)
+        cv2.imshow("TFT Replay", disp)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             raise KeyboardInterrupt

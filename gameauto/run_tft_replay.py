@@ -42,7 +42,7 @@ from gameauto.tools.replay_driver import (
 # ═══════════════════════════════════════════════════════════════════════
 
 # 视频文件路径 (30fps TFT 录像)
-VIDEO_PATH = r"D:\gameauto\videos\tft_sample.mp4"
+VIDEO_PATH = r"D:\gameauto\mobilerun\SVID_20260604_154906_1.mp4"
 
 # 感知 / 决策后端 (见下方 PERCEIVE_BACKENDS / DECIDE_BACKENDS 的可选键)
 PERCEIVE = "ocr"     # "stub" | "ocr" | "adapter"
@@ -126,17 +126,11 @@ def _load_rois() -> dict:
     return _ROIS_CACHE
 
 
-def _ocr_crop(img_bgr: np.ndarray, roi: dict) -> str:
-    """裁剪一个 ROI 并 POST 到 OCR 服务, 返回 combined_text。"""
-    h, w = img_bgr.shape[:2]
-    l = int(roi["left"] * w); t = int(roi["top"] * h)
-    r = int(roi["right"] * w); b = int(roi["bottom"] * h)
-    crop = img_bgr[t:b, l:r]
-    if crop.size == 0:
-        return ""
-    ok, buf = cv2.imencode(".png", crop)
+def _ocr_image(crop_bgr: np.ndarray) -> tuple[str, int]:
+    """POST 一个 BGR 小图到 OCR 服务, 返回 (combined_text, latency_ms)。"""
+    ok, buf = cv2.imencode(".png", crop_bgr)
     if not ok:
-        return ""
+        return "", 0
     b64 = base64.b64encode(buf.tobytes()).decode()
     payload = json.dumps(
         {"image": b64, "lang": "ch", "use_angle_cls": True, "threshold": 0.5}
@@ -146,16 +140,26 @@ def _ocr_crop(img_bgr: np.ndarray, roi: dict) -> str:
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
-            return json.loads(resp.read())["combined_text"]
+            data = json.loads(resp.read())
+            return data.get("combined_text", ""), int(data.get("latency_ms", 0))
     except Exception as e:
-        return f"<err:{e}>"
+        return f"<err:{e}>", 0
 
 
 def ocr_perceive(frame_bgr: np.ndarray) -> dict:
-    """OCR 感知: 并行识别 gold/level/hp/timer + 5 商店槽。"""
+    """OCR 感知: 并行识别 gold/level/hp/timer + 5 商店槽。
+
+    返回 state 含:
+      - ocr: {roi名: 文本}                 便于决策/简要打印
+      - gold/level/hp: int|None            从文本抓的数字
+      - ocr_total_ms: int                  各 ROI 服务端推理时长之和
+      - overlays: [{box, label}]           预览画框 (box=像素坐标, label="key:text ms")
+      - details: [str]                     控制台逐行打印 "key = text (ms)"
+    """
     if frame_bgr is None:
         return {}
     rois = _load_rois()
+    h, w = frame_bgr.shape[:2]
 
     def _resolve(path):
         cur = rois
@@ -163,19 +167,41 @@ def ocr_perceive(frame_bgr: np.ndarray) -> dict:
             cur = cur[seg]
         return cur
 
-    tasks = [(key, _resolve(path)) for key, path in _OCR_KEYS]
+    # 算出每个 ROI 的像素框 + 裁剪
+    items = []
+    for key, path in _OCR_KEYS:
+        roi = _resolve(path)
+        l = int(roi["left"] * w); t = int(roi["top"] * h)
+        r = int(roi["right"] * w); b = int(roi["bottom"] * h)
+        crop = frame_bgr[t:b, l:r]
+        items.append((key, (l, t, r, b), crop))
 
-    def _do(item):
-        key, roi = item
-        return key, _ocr_crop(frame_bgr, roi)
+    def _do(it):
+        key, box, crop = it
+        if crop.size == 0:
+            return key, box, "", 0
+        txt, ms = _ocr_image(crop)
+        return key, box, txt, ms
 
-    results = list(_OCR_POOL.map(_do, tasks))
-    state = {"ocr": dict(results)}
-    # 顺手提取数字字段, 方便决策/观察
-    state["gold"] = _first_int(state["ocr"].get("gold", ""))
-    state["level"] = _first_int(state["ocr"].get("level", ""))
-    state["hp"] = _first_int(state["ocr"].get("hp", ""))
-    return state
+    results = list(_OCR_POOL.map(_do, items))
+
+    ocr_text, overlays, details = {}, [], []
+    total_ms = 0
+    for key, box, txt, ms in results:
+        ocr_text[key] = txt
+        total_ms += ms
+        overlays.append({"box": box, "label": f"{key}:{txt} {ms}ms"})
+        details.append(f"{key:6s} = {txt!r:<10} ({ms}ms)")
+
+    return {
+        "ocr": ocr_text,
+        "gold": _first_int(ocr_text.get("gold", "")),
+        "level": _first_int(ocr_text.get("level", "")),
+        "hp": _first_int(ocr_text.get("hp", "")),
+        "ocr_total_ms": total_ms,
+        "overlays": overlays,
+        "details": details,
+    }
 
 
 def _first_int(text: str) -> int | None:
