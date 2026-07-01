@@ -251,11 +251,15 @@ class RoiAnnotator:
             cv2.putText(disp, k, (l, max(0, t - 4)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
         # 顶部信息条
-        cv2.rectangle(disp, (0, 0), (self.disp_w, 26), (40, 40, 40), -1)
+        cv2.rectangle(disp, (0, 0), (self.disp_w, 30), (40, 40, 40), -1)
         item = self._cur()
-        cv2.putText(disp, f"[{self.idx + 1}/{len(self.checklist)}] {self.section}/{item['key']}"
-                    f"  {item['desc']}",
-                    (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 255, 200), 1)
+        # desc 含中文, 用 PIL 绘制
+        from gameauto.tools.cv_text import put_text_zh
+        disp = put_text_zh(
+            disp,
+            f"[{self.idx + 1}/{len(self.checklist)}] {self.section}/{item['key']}  {item['desc']}",
+            (6, 6), color_bgr=(200, 255, 200), px=20,
+        )
         cv2.putText(disp, self.screens[self.scr_idx][0],
                     (6, self.disp_h - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         if self.roi:
@@ -267,7 +271,7 @@ class RoiAnnotator:
     def _status(self):
         item = self._cur()
         print(f"\r [{self.idx + 1}/{len(self.checklist)}] {self.section}/{item['key']}"
-              f"  {item['desc']}      a/d=切项 w/s=切截图 框选=保存 u=撤销 q=退出", flush=True)
+              f"  {item['desc']}      a/d=切项 w/s=切截图 框选=保存 u=删除当前项 q=退出", flush=True)
 
     def run(self):
         if not self.screens:

@@ -196,6 +196,8 @@ class ReplayDriver:
         print(f"  actions: {_actions_brief(actions) or '(无)'}")
 
     def _preview(self, frame: np.ndarray, ts: float, advanced: int, state: dict) -> None:
+        from gameauto.tools.cv_text import put_text_zh
+
         disp = frame.copy()
         # perceive 可返回 overlays: [{"box":(l,t,r,b), "label":str}, ...]
         for ov in state.get("overlays", []):
@@ -203,8 +205,9 @@ class ReplayDriver:
             cv2.rectangle(disp, (l, t), (r, b), (0, 255, 0), 2)
             label = ov.get("label", "")
             if label:
-                cv2.putText(disp, label, (l, max(0, t - 6)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                # label 含中文 OCR 结果, 用 PIL 绘制 (cv2.putText 不支持中文)
+                disp = put_text_zh(disp, label, (l, max(0, t - 26)),
+                                   color_bgr=(0, 255, 0), px=22)
         cv2.setWindowTitle(
             "TFT Replay",
             f"TFT Replay — t={ts:.2f}s dropped≈{advanced} (按 q 退出)",

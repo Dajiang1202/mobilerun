@@ -232,13 +232,19 @@ class Cropper:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
 
     def _draw(self):
+        from gameauto.tools.cv_text import put_text_zh
+
         disp = self.scr_disp.copy()
-        cv2.rectangle(disp, (0, 0), (self.disp_w, 26), (40, 40, 40), -1)
+        cv2.rectangle(disp, (0, 0), (self.disp_w, 30), (40, 40, 40), -1)
         item = self._cur()
         done = sum(1 for it in self.checklist if it["file"] in self.completed)
-        cv2.putText(disp, f"[{self.idx+1}/{len(self.checklist)}] {item['cat']}/{item['file']}"
-                    f"  {item['desc']}  done={done}/{len(self.checklist)}",
-                    (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 255, 200), 1)
+        # desc 含中文, 用 PIL 绘制
+        disp = put_text_zh(
+            disp,
+            f"[{self.idx+1}/{len(self.checklist)}] {item['cat']}/{item['file']}  "
+            f"{item['desc']}  done={done}/{len(self.checklist)}",
+            (6, 6), color_bgr=(200, 255, 200), px=20,
+        )
         cv2.putText(disp, self.screens[self.scr_idx][0],
                     (6, self.disp_h - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         if self.roi:
@@ -252,7 +258,7 @@ class Cropper:
         flag = "[done]" if item["file"] in self.completed else (
             "[skip]" if item["file"] in self.skipped else "[todo]")
         print(f"\r {flag} [{self.idx+1}/{len(self.checklist)}] {item['cat']}/{item['file']}"
-              f"  {item['desc']}      a/d=切项 w/s=切截图 x=跳过 u=撤销 q=退出", flush=True)
+              f"  {item['desc']}      a/d=切项 w/s=切截图 x=跳过 u=删除当前项 q=退出", flush=True)
 
     def run(self):
         cv2.namedWindow(self.win_name, cv2.WINDOW_NORMAL)
