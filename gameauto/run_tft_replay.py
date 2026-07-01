@@ -45,7 +45,7 @@ from gameauto.tools.replay_driver import (
 VIDEO_PATH = r"D:\gameauto\mobilerun\SVID_20260604_154906_1.mp4"
 
 # 感知 / 决策后端 (见下方 PERCEIVE_BACKENDS / DECIDE_BACKENDS 的可选键)
-PERCEIVE = "ocr"     # "stub" | "ocr" | "adapter"
+PERCEIVE = "champions"  # "stub" | "ocr" | "champions" | "adapter"
 DECIDE = "stub"      # "stub" | "adapter"
 
 # 播放与节奏
@@ -227,8 +227,8 @@ def _first_int(text: str) -> int | None:
 # 血条下方就是棋子, 点击后 champion 区域弹出棋子名 (真机流程)。
 # 回放里先验证检测: 主窗画血条框+点击点, debug 窗画绿色掩膜。
 HP_GREEN_RGB = (131, 222, 117)   # 我方血条绿 (RGB)
-HP_GREEN_TOL = 10                # RGB 各通道容差 (正负)
-HP_BAR_MIN_RATIO = 6.0           # 血条长宽比下限 (w/h)
+HP_GREEN_TOL = 20                # RGB 各通道容差; 实测真图绿散布±30, 20覆盖核心+边缘
+HP_BAR_MIN_RATIO = 6.0           # 血条长宽比下限 (w/h); 实测真图约23
 HP_MIN_WIDTH = 12                # 血条最小像素宽 (过滤小噪点)
 HP_CLICK_BELOW = 3.0             # 点击点距血条底部 = 血条高度 × 此值
 
