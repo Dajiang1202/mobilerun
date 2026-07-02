@@ -61,18 +61,30 @@
 
 每个阶段一个 handler, 决定"调什么感知 + 产什么动作"。
 
-| 阶段 | 触发检测 (模板) | 感知 | 动作 |
-|------|----------------|------|------|
-| LOBBY | `lobby_play_btn` | 无 | tap 开始游戏 → wait 6s |
-| LOADING | 都不匹配 | 无 | sleep 等 |
-| PLANNING (备战) | `planning_timer` + 刷新按钮在 | full_perceive | 短期决策: 买/卖/装备/站位/刷新/升级 |
-| COMBAT (战斗) | `combat_indicator` | 血条 (棋盘+战备) | sleep 2s |
-| CAROUSEL (选秀) | `carousel_banner` | 无 | tap 中心棋子 |
-| AUGMENT (海克斯) | `augment_frame` | 无 | tap 第一个 |
-| PVE (野怪) | `pve_indicator` | 同 PLANNING | 同 PLANNING |
-| RESULT (结算) | `result_rank` | 无 | tap 继续/返回大厅 |
+### 阶段判断 (全 OCR + 阶段逻辑, **不用模板**)
 
-**分层 handler** (斗地主验证过的模式): 先轻量模板判阶段, 只有 PLANNING/PVE 才跑全量感知。
+| 判断 | 方法 | 备注 |
+|------|------|------|
+| **备战 vs 战斗** | 同阶段 X-Y 内数倒计时: **第1次=备战**, **第2次=战斗** | 备战没按钮可标; 靠 stage OCR + 倒计时计数 |
+| **结算/结束** | OCR 到「**第X名**」 | 不用模板 |
+| **商店开没开** | OCR `refresh_btn` 区域有「**刷新**」二字 | 开着才有 |
+| LOBBY/匹配 | 全图 OCR「开始游戏」「接受」(pregame) | 已实现 |
+| 海克斯 | **暂不识别** (超时游戏自动选) | 需先验知识(哪些回合), 以后加 |
+| 选秀 | **暂不识别** | 需先验知识(X 回合) |
+| 野怪 | **暂不管** | 后续手工标先验 |
+
+### 各阶段 handler (基于上面判断)
+
+| 阶段 | 感知 | 动作 |
+|------|------|------|
+| LOBBY | OCR「开始游戏」 | tap → wait |
+| PLANNING (备战, 第1次倒计时) | full_perceive (商店OCR+金币+血条+装备) + 判商店开闭(刷新字) | 短期决策: 买/卖/装备/站位/刷新/升级 |
+| COMBAT (战斗, 第2次倒计时) | 血条(棋盘+战备) | sleep 等打完 |
+| RESULT (结算, OCR「第X名」) | 无 | tap 继续/返回 → 下一局 |
+| CAROUSEL/AUGMENT/PVE | 暂不处理 | 超时自动 / 后续接先验 |
+
+**分层 handler**: 只有 PLANNING 跑全量感知; COMBAT 只看血条; 结算靠一次全图 OCR。
+倒计时计数是**有状态**的 (类似 pregame 时序 driver), 纯每帧 detector 表达不了, 主循环要记"当前 stage + 第几次倒计时"。
 
 ---
 
