@@ -17,7 +17,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import gameauto.run_tft_replay as m
-from gameauto.tools.cv_text import put_text_zh
+from gameauto.tools.cv_text import overlay_text, put_text_zh
 
 # ═══════════════════════════════════════════════════════════════════════
 #  配置区
@@ -64,8 +64,8 @@ def main():
         summary = (f"棋盘{st.get('champion_count', 0)} 战备{st.get('bench_count', 0)} | "
                    f"gold={ocr.get('gold', '')} stage={ocr.get('stage', '')} | "
                    f"shop={[ocr.get(f'shop{i}', '') for i in range(5)]}")
-        cv2.rectangle(disp, (0, 0), (w, 56), (0, 0, 0), -1)
-        disp = put_text_zh(disp, summary, (10, 14), color_bgr=(255, 255, 255), px=22)
+        # 顶部汇总 (半透明底, 不遮挡 stage/timer/HP)
+        disp = overlay_text(disp, summary, (10, 14), color_bgr=(255, 255, 255), px=22)
         cv2.imencode(".png", disp)[1].tofile(str(out / sp.name))
 
         print(f"{sp.name:<16}{st.get('champion_count', 0):>4}{st.get('bench_count', 0):>4}  "

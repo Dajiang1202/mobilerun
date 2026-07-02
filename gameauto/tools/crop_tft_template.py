@@ -233,14 +233,13 @@ class Cropper:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
 
     def _draw(self):
-        from gameauto.tools.cv_text import put_text_zh
+        from gameauto.tools.cv_text import overlay_text
 
         disp = self.scr_disp.copy()
-        cv2.rectangle(disp, (0, 0), (self.disp_w, 30), (40, 40, 40), -1)
         item = self._cur()
         done = sum(1 for it in self.checklist if it["file"] in self.completed)
-        # desc 含中文, 用 PIL 绘制
-        disp = put_text_zh(
+        # desc 含中文, 半透明底不全宽遮挡
+        disp = overlay_text(
             disp,
             f"[{self.idx+1}/{len(self.checklist)}] {item['cat']}/{item['file']}  "
             f"{item['desc']}  done={done}/{len(self.checklist)}",

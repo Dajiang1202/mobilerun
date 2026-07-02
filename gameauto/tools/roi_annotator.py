@@ -250,12 +250,10 @@ class RoiAnnotator:
             cv2.rectangle(disp, (l, t), (r, b), color, 1 if not cur else 2)
             cv2.putText(disp, k, (l, max(0, t - 4)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
-        # 顶部信息条
-        cv2.rectangle(disp, (0, 0), (self.disp_w, 30), (40, 40, 40), -1)
+        # 顶部信息条 (半透明底, 不全宽遮挡 stage/timer)
         item = self._cur()
-        # desc 含中文, 用 PIL 绘制
-        from gameauto.tools.cv_text import put_text_zh
-        disp = put_text_zh(
+        from gameauto.tools.cv_text import overlay_text
+        disp = overlay_text(
             disp,
             f"[{self.idx + 1}/{len(self.checklist)}] {self.section}/{item['key']}  {item['desc']}",
             (6, 6), color_bgr=(200, 255, 200), px=20,

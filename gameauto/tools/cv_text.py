@@ -67,3 +67,38 @@ def put_text_zh(
     rgb = (int(color_bgr[2]), int(color_bgr[1]), int(color_bgr[0]))
     draw.text(org, str(text), font=_get_font(px), fill=rgb)
     return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+
+def overlay_text(
+    img: np.ndarray,
+    text: str,
+    org: tuple[int, int],
+    color_bgr: tuple[int, int, int] = (255, 255, 255),
+    px: int = 22,
+    bg: tuple[int, int, int] = (0, 0, 0),
+    bg_alpha: float = 0.5,
+    pad: int = 5,
+) -> np.ndarray:
+    """画文字 + 仅在文字背后垫一块半透明底 (不全宽遮挡), 底下内容透得见。
+
+    替代 cv2.rectangle 整条不透明信息条 —— 避免盖住图顶的 stage/timer/HP。
+    """
+    x, y = org
+    pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)).convert("RGBA")
+    font = _get_font(px)
+    try:
+        l, t, r, b = font.getbbox(str(text))
+        tw, th = r - l, b - t
+    except Exception:  # noqa: BLE001
+        tw, th = px * len(str(text)) // 2, px
+    ov = Image.new("RGBA", pil.size, (0, 0, 0, 0))
+    ImageDraw.Draw(ov).rectangle(
+        [x - pad, y - pad, x + tw + pad, y + th + pad * 2],
+        fill=(int(bg[2]), int(bg[1]), int(bg[0]), int(255 * bg_alpha)),
+    )
+    pil = Image.alpha_composite(pil, ov)
+    ImageDraw.Draw(pil).text(
+        org, str(text), font=font,
+        fill=(int(color_bgr[2]), int(color_bgr[1]), int(color_bgr[0])),
+    )
+    return cv2.cvtColor(np.array(pil.convert("RGB")), cv2.COLOR_RGB2BGR)

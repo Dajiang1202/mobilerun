@@ -124,8 +124,9 @@ async def observe(capture: Capture, tm: TemplateMatchTask | None) -> None:
                 if ov.get("label"):
                     disp = put_text_zh(disp, ov["label"], (l, max(0, t - 24)),
                                        color_bgr=(0, 255, 0), px=20)
-            disp = put_text_zh(disp, f"阶段: {phase}", (20, 20),
-                               color_bgr=(0, 255, 255), px=30)
+            from gameauto.tools.cv_text import overlay_text
+            disp = overlay_text(disp, f"阶段: {phase}", (20, 20),
+                                color_bgr=(0, 255, 255), px=30)
             cv2.imshow("TFT device observe", disp)
             if (cv2.waitKey(1) & 0xFF) == ord("q"):
                 break

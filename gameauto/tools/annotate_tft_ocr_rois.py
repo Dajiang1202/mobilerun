@@ -28,7 +28,7 @@ from gameauto.tools.roi_annotator import RoiAnnotator, load_screenshots, ROIS_YA
 # ═══════════════════════════════════════════════════════════════════════
 
 # 截图目录 (各游戏阶段的 TFT 截图, 至少一张备战阶段)
-SCREENS_DIR = r"D:\screenshots"
+SCREENS_DIR = r"D:\gameauto\mobilerun\gameauto\core\capture\scrcpy\captured"
 
 # OCR 区域清单 —— 想到新的就加一行 (key 必须唯一, 建议 ASCII)
 # key 会同时作为 rois.yaml 的字段名 和 OCR 后端的输出键。
