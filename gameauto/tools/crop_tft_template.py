@@ -57,6 +57,7 @@ def build_checklist() -> list[dict]:
         ("carousel_banner", "选秀-横幅"),
         ("augment_frame", "海克斯-强化框"),
         ("pve_indicator", "野怪关-标识"),
+        ("shop_toggle", "商店开关按钮 (开/关商店)"),
     ]:
         items.append({"file": nm, "cat": "state", "desc": f"状态-{desc}"})
     # 按钮模板

@@ -99,21 +99,35 @@ class TftActions:
         return [Action(type="tap", x1=x, y1=y, description="点击棋子")]
 
     def sell_champion(self, pos_px: tuple[int, int]) -> list[Action]:
-        """出售棋子: 从棋子拖到出售区。"""
-        sell_roi = self._resolve_roi([("ocr", "sell"), ("shop", "sell"), ("buttons", "sell")])
-        if not sell_roi:
-            return []
+        """出售棋子: 长按棋子(~1s) + 垂直拖到屏幕底部。无独立出售区。
+
+        TFT 手游的出售手势: 按住棋子, 往下拖到屏幕底, 松手即卖。
+        duration_ms=1000 体现长按; 终点 x 不变、y 到接近底部(归一化 990)。
+        """
         x1, y1 = to_normalized(pos_px[0], pos_px[1], self.w, self.h)
-        x2, y2 = self._roi_mid1000(sell_roi)
-        return [Action(type="drag", x1=x1, y1=y1, x2=x2, y2=y2, duration_ms=400,
-                       description="出售棋子")]
+        return [Action(type="drag", x1=x1, y1=y1, x2=x1, y2=990, duration_ms=1000,
+                       description="出售棋子(长按拖到底)")]
 
     def equip(self, item_pos_px: tuple[int, int], champ_pos_px: tuple[int, int]) -> list[Action]:
-        """给棋子上装备: 从装备拖到棋子。"""
+        """给棋子上装备: 从装备位置拖到棋子 (装备位置来自 perception)。"""
         x1, y1 = to_normalized(item_pos_px[0], item_pos_px[1], self.w, self.h)
         x2, y2 = to_normalized(champ_pos_px[0], champ_pos_px[1], self.w, self.h)
         return [Action(type="drag", x1=x1, y1=y1, x2=x2, y2=y2, duration_ms=400,
                        description="上装备")]
+
+    def equip_from_slot(self, slot_idx: int, champ_pos_px: tuple[int, int]) -> list[Action]:
+        """从标注的固定装备槽拖到棋子 (装备识别能力未接入前的过渡方案)。
+
+        装备槽位置用标注工具画成 ocr:itemN (N=0,1,2...), 没标则返回空。
+        """
+        item_roi = self._resolve_roi([("ocr", f"item{slot_idx}"),
+                                      ("items", f"item{slot_idx}")])
+        if not item_roi:
+            return []
+        ix, iy = self._roi_mid1000(item_roi)
+        cx, cy = to_normalized(champ_pos_px[0], champ_pos_px[1], self.w, self.h)
+        return [Action(type="drag", x1=ix, y1=iy, x2=cx, y2=cy, duration_ms=400,
+                       description=f"装备槽{slot_idx}→棋子")]
 
     def move_champion(self, from_px: tuple[int, int], to_px: tuple[int, int]) -> list[Action]:
         """调整站位 / 捡掉落物: 从一个棋盘格拖到另一个。"""
