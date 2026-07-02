@@ -38,6 +38,23 @@
 **关键**: 感知和动作都已就绪并解耦——感知出 `state`, 决策用中层 `TftActions` 产出 `list[Action]`,
 `GameLoop` 执行。换 HDC/scrcpy = 换 BaseInput, 动作层零改动。
 
+### ⚡ 按状态机阶段选择性识别 (省算力, 重要设计)
+
+**不是每帧全量识别**, 而是根据当前阶段/时机只跑需要的感知:
+
+| 何时识别 | 识别什么 | 为什么 |
+|---------|---------|--------|
+| 战斗阶段 (COMBAT) | **血条** (棋盘+战备棋子定位) | 战斗中棋子在打, 血条最直观; 此时商店无关 |
+| 备战阶段 (PLANNING) | 商店 OCR + 金币 + 血条 | 要决策买/卖/升级 |
+| 特定回合 (如 3-2) | **海克斯强化符文** (augment) | 只在这几个回合出现, 平时识别是浪费 |
+| 判断是否在商店界面 | **刷新按钮**模板匹配 | 看见刷新按钮 = 在商店; 看不见 = 商店关着 |
+| 每回合结束后 | **全图 OCR 一次** | 兜底读结算/状态, 不在 ROI 里单列 |
+
+**已从常规 OCR ROI 移除 (省算力)**: 血量 hp / 商店开关 shop_toggle / 结算 continue_btn。
+- hp: 不影响执行, 后期决策再用 (商店开关=点 gold 位置即可)。
+- 结算: 靠每回合后全图 OCR, 不在 ROI 单列。
+掉落物 (问号) 暂时全图 OCR 找, 后续标 `drop_region` 小框提速。
+
 ---
 
 ## 二、状态机 (游戏阶段)
@@ -48,8 +65,8 @@
 |------|----------------|------|------|
 | LOBBY | `lobby_play_btn` | 无 | tap 开始游戏 → wait 6s |
 | LOADING | 都不匹配 | 无 | sleep 等 |
-| PLANNING (备战) | `planning_timer` + `shop_toggle`开 | full_perceive | 短期决策: 买/卖/装备/站位/刷新/升级 |
-| COMBAT (战斗) | `combat_indicator` | 无 (不调 OCR 省) | sleep 2s |
+| PLANNING (备战) | `planning_timer` + 刷新按钮在 | full_perceive | 短期决策: 买/卖/装备/站位/刷新/升级 |
+| COMBAT (战斗) | `combat_indicator` | 血条 (棋盘+战备) | sleep 2s |
 | CAROUSEL (选秀) | `carousel_banner` | 无 | tap 中心棋子 |
 | AUGMENT (海克斯) | `augment_frame` | 无 | tap 第一个 |
 | PVE (野怪) | `pve_indicator` | 同 PLANNING | 同 PLANNING |

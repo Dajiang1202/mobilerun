@@ -55,15 +55,18 @@ def main():
 
         for ov in st.get("overlays", []):
             l, t, r, b = ov.get("box", (0, 0, 0, 0))
-            cv2.rectangle(disp, (l, t), (r, b), (0, 255, 0), 2)
+            color = ov.get("color", (0, 255, 0))
+            cv2.rectangle(disp, (l, t), (r, b), color, 2)
             if ov.get("label"):
                 disp = put_text_zh(disp, ov["label"], (l, max(0, t - 22)),
-                                   color_bgr=(0, 255, 0), px=18)
+                                   color_bgr=color, px=18)
 
         ocr = st.get("ocr", {})
+        items = st.get("items", {})
+        item_str = "".join("✓" if items.get(f"item{i}") else "·" for i in range(3)) if items else ""
         summary = (f"棋盘{st.get('champion_count', 0)} 战备{st.get('bench_count', 0)} | "
-                   f"gold={ocr.get('gold', '')} stage={ocr.get('stage', '')} | "
-                   f"shop={[ocr.get(f'shop{i}', '') for i in range(5)]}")
+                   f"gold={ocr.get('gold', '')} stage={ocr.get('stage', '')} 装备[{item_str}] | "
+                   f"shop={' '.join((ocr.get(f'shop{i}', '') or '·') for i in range(5))}")
         # 顶部汇总 (半透明底, 不遮挡 stage/timer/HP)
         disp = overlay_text(disp, summary, (10, 14), color_bgr=(255, 255, 255), px=22)
         cv2.imencode(".png", disp)[1].tofile(str(out / sp.name))

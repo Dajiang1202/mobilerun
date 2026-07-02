@@ -128,7 +128,6 @@ _ROIS_CACHE: dict | None = None
 _OCR_KEYS = [
     ("gold", ["info", "gold"]),
     ("level", ["info", "level"]),
-    ("hp", ["info", "hp"]),
     ("timer", ["info", "round_timer"]),
     ("shop0", ["shop", "slots", 0]),
     ("shop1", ["shop", "slots", 1]),
@@ -136,6 +135,10 @@ _OCR_KEYS = [
     ("shop3", ["shop", "slots", 3]),
     ("shop4", ["shop", "slots", 4]),
 ]
+
+# 即使标了也跳过 OCR (省算力): 血量/商店开关/结算继续/结算 —— 不影响当前执行。
+# 血量后期影响决策再说; 商店开关靠点 gold 位置; 结算靠每回合后全图OCR。
+_OCR_EXCLUDE = {"hp", "shop_toggle", "continue_btn", "result", "drop_region"}
 
 
 def _load_rois() -> dict:
@@ -174,9 +177,11 @@ def ocr_perceive(frame_bgr: np.ndarray) -> dict:
     ROI 来源: 优先 rois.yaml 的 ocr: section (annotate_tft_ocr_rois.py 标注的,
     扁平 key→box); 没有则回退到 _OCR_KEYS 的 info/shop 路径。
 
+    _OCR_EXCLUDE 里的 key 跳过 (hp/shop_toggle/continue_btn/result 暂不识别省算力)。
+
     返回 state 含:
       - ocr: {roi名: 文本}                 便于决策/简要打印
-      - gold/level/hp: int|None            从文本抓的数字
+      - gold/level: int|None               从文本抓的数字
       - ocr_total_ms: int                  各 ROI 服务端推理时长之和
       - overlays: [{box, label}]           预览画框 (box=像素坐标, label="key:text ms")
       - details: [str]                     控制台逐行打印 "key = text (ms)"
@@ -186,10 +191,11 @@ def ocr_perceive(frame_bgr: np.ndarray) -> dict:
     rois = _load_rois()
     h, w = frame_bgr.shape[:2]
 
-    # ROI 解析: ocr: section 优先 (扁平), 否则回退到 _OCR_KEYS 嵌套路径
+    # ROI 解析: ocr: section 优先 (扁平, 排除 _OCR_EXCLUDE), 否则回退到 _OCR_KEYS
     ocr_section = rois.get("ocr") if isinstance(rois, dict) else None
     if ocr_section:
-        roi_items = [(key, box) for key, box in ocr_section.items()]
+        roi_items = [(key, box) for key, box in ocr_section.items()
+                     if key not in _OCR_EXCLUDE]
     else:
         def _resolve(path):
             cur = rois
@@ -230,7 +236,6 @@ def ocr_perceive(frame_bgr: np.ndarray) -> dict:
         "ocr": ocr_text,
         "gold": _first_int(ocr_text.get("gold", "")),
         "level": _first_int(ocr_text.get("level", "")),
-        "hp": _first_int(ocr_text.get("hp", "")),
         "ocr_total_ms": total_ms,
         "overlays": overlays,
         "details": details,
@@ -450,16 +455,58 @@ def champions_perceive(frame_bgr: np.ndarray) -> dict:
     }
 
 
-def full_perceive(frame_bgr: np.ndarray) -> dict:
-    """组合视图: 血条检测(champions) + 商店/经验/金币等 OCR 一起展示。
+def _item_gold_pixels(crop_bgr: np.ndarray) -> int:
+    """数装备槽里的金色像素 (有装备=金边)。金: R高 G中高 B偏低 且 R>B。"""
+    if crop_bgr is None or crop_bgr.size == 0:
+        return 0
+    r = crop_bgr[:, :, 2].astype(np.int16)
+    g = crop_bgr[:, :, 1].astype(np.int16)
+    b = crop_bgr[:, :, 0].astype(np.int16)
+    gold = (r > 180) & (g > 150) & (b < 170) & (r > b)
+    return int(gold.sum())
 
-    把 champions_perceive 的血条/点击点 和 ocr_perceive 的各 ROI 文本
-    合并到同一组 overlays/details, 主窗一次看清所有识别结果。
-    """
+
+# 装备槽金边检测阈值 (金像素超过此 = 有装备; 实测 有~289-849, 无=0)
+ITEM_GOLD_MIN_PIXELS = 50
+
+
+def detect_items(frame_bgr: np.ndarray, rois: dict | None = None):
+    """检测装备槽有没有装备 (金边)。返回 {itemN: bool, ...} + overlays/details。"""
+    if frame_bgr is None:
+        return {}, [], []
+    if rois is None:
+        rois = _load_rois()
+    h, w = frame_bgr.shape[:2]
+    items, overlays, details = {}, [], []
+    for i in range(3):
+        key = f"item{i}"
+        roi = _flat_roi(rois, "ocr", key)
+        if not roi:
+            continue
+        L, T = int(roi[0] * w), int(roi[1] * h)
+        R, B = int(roi[2] * w), int(roi[3] * h)
+        n = _item_gold_pixels(frame_bgr[T:B, L:R])
+        present = n >= ITEM_GOLD_MIN_PIXELS
+        items[key] = present
+        overlays.append({
+            "box": (L, T, R, B),
+            "label": f"{key}:{'✓装' if present else '空'}({n})",
+            "color": (0, 255, 0) if present else (96, 96, 96),
+        })
+        details.append(f"  {key}: {'有装备' if present else '空'} (金像素{n})")
+    return items, overlays, details
+
+
+def full_perceive(frame_bgr: np.ndarray) -> dict:
+    """组合视图: 血条 + 商店/经验/金币 OCR + 装备槽(金边) 一起展示。"""
     ocr_st = ocr_perceive(frame_bgr)
     ch_st = champions_perceive(frame_bgr)
-    overlays = list(ch_st.get("overlays", [])) + list(ocr_st.get("overlays", []))
-    details = list(ch_st.get("details", [])) + list(ocr_st.get("details", []))
+    rois = _load_rois()
+    items, item_ov, item_det = detect_items(frame_bgr, rois)
+    overlays = (list(ch_st.get("overlays", [])) + list(ocr_st.get("overlays", []))
+                + item_ov)
+    details = (list(ch_st.get("details", [])) + list(ocr_st.get("details", []))
+               + item_det)
     return {
         "champion_count": ch_st.get("champion_count", 0),
         "bench_count": ch_st.get("bench_count", 0),
@@ -470,7 +517,7 @@ def full_perceive(frame_bgr: np.ndarray) -> dict:
         "ocr": ocr_st.get("ocr", {}),
         "gold": ocr_st.get("gold"),
         "level": ocr_st.get("level"),
-        "hp": ocr_st.get("hp"),
+        "items": items,
         "ocr_total_ms": ocr_st.get("ocr_total_ms", 0),
         "overlays": overlays,
         "details": details,
@@ -488,20 +535,31 @@ def text_perceive(frame_bgr: np.ndarray) -> dict:
     """
     if frame_bgr is None:
         return {}
+    h, w = frame_bgr.shape[:2]
+    # 掉落物识别区: 标了 ocr:drop_region 就只在该区域内算掉落物 (提速), 没标=全图
+    drop_region = _flat_roi(_load_rois(), "ocr", "drop_region")  # None=全图
     ok, buf = cv2.imencode(".png", frame_bgr)
     png = buf.tobytes() if ok else b""
     res = _ocr_full_png(png)
     overlays, details, drops = [], [], []
+
+    def _in_region(cx, cy):
+        if not drop_region:
+            return True
+        l, t, r, b = drop_region
+        return (l * w) <= cx <= (r * w) and (t * h) <= cy <= (b * h)
+
     for hit in res.hits:
         xs = [p[0] for p in hit.box]; ys = [p[1] for p in hit.box]
         x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
-        is_drop = any(c in hit.text for c in "??？？")
+        cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+        is_drop = any(c in hit.text for c in "??？？") and _in_region(cx, cy)
         overlays.append({
             "box": (x0, y0, x1, y1),
             "label": hit.text + (" 💧" if is_drop else ""),
+            "color": (0, 0, 255) if is_drop else (255, 255, 0),  # 掉落物红, 普通文字青
         })
         if is_drop:
-            cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
             drops.append((cx, cy))
             details.append(f"  掉落物? {hit.text!r} @ ({cx},{cy})")
     details.insert(0, f"全图OCR: {len(res.hits)}条文本, 掉落物候选{len(drops)}个 ({res.latency_ms}ms)")

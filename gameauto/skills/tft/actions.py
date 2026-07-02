@@ -163,12 +163,12 @@ class TftActions:
         return [Action(type="tap", x1=x, y1=y, description="继续")]
 
     def toggle_shop(self) -> list[Action]:
-        """开关商店 (标注 ocr:shop_toggle 点位; 没标返回空, 提示去标)。"""
-        roi = self._resolve_roi([("ocr", "shop_toggle")])
+        """开关商店: 点 gold 位置即可当开关 (不再单独识别 shop_toggle)。"""
+        roi = self._resolve_roi([("ocr", "gold"), ("info", "gold")])
         if not roi:
             return []
         x, y = self._roi_mid1000(roi)
-        return [Action(type="tap", x1=x, y1=y, description="开关商店")]
+        return [Action(type="tap", x1=x, y1=y, description="开关商店(点gold)")]
 
     def click_drop(self, pos_px: tuple[int, int]) -> list[Action]:
         """点击掉落物 (圆形问号/金币), 语义同 click_champion, 单列便于辨读。"""

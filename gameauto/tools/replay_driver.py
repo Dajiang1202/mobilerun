@@ -206,15 +206,14 @@ class ReplayDriver:
 
         disp = frame.copy()
         fh, fw = disp.shape[:2]
-        # perceive 可返回 overlays: [{"box":(l,t,r,b), "label":str}, ...]
+        # perceive 可返回 overlays: [{"box":(l,t,r,b), "label":str, "color":bgr}, ...]
         for ov in state.get("overlays", []):
             l, t, r, b = ov.get("box", (0, 0, 0, 0))
-            cv2.rectangle(disp, (l, t), (r, b), (0, 255, 0), 2)
+            color = ov.get("color", (0, 255, 0))
+            cv2.rectangle(disp, (l, t), (r, b), color, 2)
             label = ov.get("label", "")
             if label:
-                # label 含中文 OCR 结果, 用 PIL 绘制 (cv2.putText 不支持中文)
-                disp = put_text_zh(disp, label, (l, max(0, t - 26)),
-                                   color_bgr=(0, 255, 0), px=22)
+                disp = put_text_zh(disp, label, (l, max(0, t - 26)), color_bgr=color, px=22)
         # 动作可视化 (decide 产出的 list[Action]): tap=橙圆点, swipe/drag=橙箭头
         # 坐标归一化[0-1000] → 帧像素, 与分辨率无关
         for a in actions or []:
