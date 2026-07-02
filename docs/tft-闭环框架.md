@@ -86,6 +86,11 @@
 **分层 handler**: 只有 PLANNING 跑全量感知; COMBAT 只看血条; 结算靠一次全图 OCR。
 倒计时计数是**有状态**的 (类似 pregame 时序 driver), 纯每帧 detector 表达不了, 主循环要记"当前 stage + 第几次倒计时"。
 
+**倒计时复位判据**: timer 值**跳回大数** (从小→大, 如 3→30) = 新一轮倒计时开始 → 计数+1。
+- stage 不变: 计数 1=备战, 2=战斗
+- stage 变了: 计数归零, 下一轮(1)=备战
+- 任意时刻 OCR「第X名」= 结算 (覆盖计数)
+
 ---
 
 ## 三、决策双层 (接感知 → 出动作)
@@ -128,13 +133,14 @@
 - 回放验证: run_tft_replay.py (可视化感知+动作, 不触设备)
 
 ### ❌ 待补 (按优先级)
-1. **状态检测模板** — 阶段判断靠它。需裁: lobby_play_btn / planning_timer / combat_indicator / result_rank / carousel_banner / augment_frame / pve_indicator / shop_toggle。(`crop_tft_template.py` 清单已就绪, 标注即可)
+1. **状态检测模板** — ~~阶段判断靠它~~ **改: 阶段判断全 OCR + 倒计时计数, 不用模板** (见上节)。
 2. **TftSkill / 状态机 handler** — `skills/tft/states.py` 骨架在但 handler 是空/旧版。要按上表实现分层 handler (LOBBY/PLANNING/COMBAT/RESULT 闭环先通)。
 3. **close_panel 动作** — click_champion 弹面板后要有关闭 (点空白或关闭键), 否则 iterate 卡住。
 4. **真机主循环** — `run_tft_scrcpy.py` 入口已有, 要接 TftSkill + 新 actions + 后端配置 (CAPTURE_BACKEND/INPUT_BACKEND, scale=2, SIGINT)。
 5. **长期 LLM 接入** — `llm_decide(state)` 钩子 + API client (Qwen3-70B/Reasoner)。短期规则可先不依赖它 (用固定战略) 跑通闭环。
-6. **选秀/海克斯动作** — click 中心/第一个, 简单 tap, 中层加 `pick_carousel()`/`pick_augment()`。
+6. **选秀/海克斯动作** — 暂不识别(超时自动选/需先验知识), 后续接回合表先验。
 7. **timing 校准** — tap 150ms, 各阶段 wait 时长 (斗地主经验: 开始游戏 6s, 回合切换)。
+8. **⚠️ 长按+拖动真机验证** — `sell_champion`(长按棋子1s+垂直拖到底) 用 scrcpy swipe 长duration 实现, 但**能否触发游戏的长按判定不确定**, 真机首跑必须验证。若不行, 改用"先 tap 弹面板→点出售按钮"或 HDC 的 press 指令。
 
 ### ⏳ 后续优化
 - 装备图标识别 (替固定槽)

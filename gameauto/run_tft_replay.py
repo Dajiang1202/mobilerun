@@ -572,17 +572,101 @@ def text_perceive(frame_bgr: np.ndarray) -> dict:
     }
 
 
+def decide_perceive(frame_bgr: np.ndarray) -> dict:
+    """决策用感知: full_perceive + 掉落物(全图OCR?) + 商店开闭(refresh区有'刷新')。"""
+    st = full_perceive(frame_bgr)
+    if frame_bgr is None:
+        return st
+    h, w = frame_bgr.shape[:2]
+    rois = _load_rois()
+    # 掉落物 (全图 OCR 找 ?)
+    txt = text_perceive(frame_bgr)
+    st["drops"] = txt.get("drops", [])
+    st["overlays"] = st.get("overlays", []) + txt.get("overlays", [])
+    # 商店开闭: refresh_btn 区域 OCR 含「刷新」
+    refresh_roi = _flat_roi(rois, "ocr", "refresh_btn")
+    rtxt = ""
+    if refresh_roi:
+        L, T, R, B = (int(refresh_roi[0] * w), int(refresh_roi[1] * h),
+                      int(refresh_roi[2] * w), int(refresh_roi[3] * h))
+        rtxt, _ = _ocr_image(frame_bgr[T:B, L:R])
+    st["shop_open"] = "刷新" in rtxt
+    st["refresh_text"] = rtxt
+    st["details"] = st.get("details", []) + [
+        f"商店开: {st['shop_open']} (refresh={rtxt!r})", f"掉落物: {len(st['drops'])}"]
+    return st
+
+
+def rule_decide(state: dict, builder: TftActions) -> list[Action]:
+    """5 条规则的短期决策 (无 AI), 产 list[Action]。state 来自 decide_perceive。
+
+    1. 有问号掉落物 → 逐个点 → 回 drop_region 左上角
+    2. 战备区有棋子 → 挨个点
+    3. 商店开着 → 随机买一个有字的槽
+    4. 装备栏有装备 → 随机拖到棋盘一个棋子
+    5. 战备区>3 → 随机卖一个 (长按+垂直拖到底)
+    """
+    import random
+    actions: list[Action] = []
+    w = state.get("frame_w", 0); h = state.get("frame_h", 0)
+    rois = _load_rois()
+
+    # 1. 问号掉落物
+    drops = state.get("drops") or []
+    for pos in drops:
+        actions += builder.click_drop(pos)
+    if drops:
+        dr = _flat_roi(rois, "ocr", "drop_region")
+        if dr and w:
+            actions += builder.click_champion((int(dr[0] * w) + 15, int(dr[1] * h) + 15))
+
+    # 2. 战备区棋子挨个点
+    bench = state.get("bench_clicks") or []
+    for pos in bench:
+        actions += builder.click_champion(pos)
+
+    # 3. 商店开着 → 随机买一个 (有文字的槽)
+    if state.get("shop_open"):
+        ocr = state.get("ocr", {})
+        cands = [i for i in range(5) if ocr.get(f"shop{i}")]
+        if cands:
+            actions += builder.buy_shop_slot(random.choice(cands))
+
+    # 4. 装备栏有装备 → 随机拖到棋盘一个棋子
+    items = state.get("items") or {}
+    filled = [int(k[4:]) for k, v in items.items() if v and k.startswith("item")]
+    board = state.get("board_clicks") or []
+    if filled and board:
+        actions += builder.equip_from_slot(random.choice(filled), random.choice(board))
+
+    # 5. 战备区>3 → 随机卖一个 (长按+垂直拖到底)
+    if len(bench) > 3:
+        actions += builder.sell_champion(random.choice(bench))
+
+    return actions
+
+
+def rule_decide_backend(state: dict) -> list[Action]:
+    """decide 后端包装: 从 state 的帧尺寸建 TftActions, 调 rule_decide。"""
+    w = state.get("frame_w"); h = state.get("frame_h")
+    if not w or not h:
+        return []
+    return rule_decide(state, TftActions(_load_rois(), w, h))
+
+
 PERCEIVE_BACKENDS = {
     "stub": stub_perceive,
     "ocr": ocr_perceive,
     "champions": champions_perceive,
     "text": text_perceive,
     "full": full_perceive,
+    "decide": decide_perceive,
     "adapter": tft_adapter_perceive,
 }
 DECIDE_BACKENDS = {
     "stub": stub_decide,
     "tft": tft_decide,
+    "rule": rule_decide_backend,
     "adapter": tft_adapter_decide,
 }
 
