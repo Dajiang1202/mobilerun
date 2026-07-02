@@ -28,6 +28,7 @@ from gameauto.core.input.scrcpy import ScrcpyInput as Input
 from gameauto.core.orchestration.base import Action
 from gameauto.core.perception.cv.template_match import TemplateMatchTask
 from gameauto.skills.tft.actions import TftActions
+from gameauto.skills.tft.pregame import PreGameDriver, make_tap_fn
 from gameauto.tools.cv_text import put_text_zh
 from gameauto.utils.coordinate import to_normalized
 
@@ -40,7 +41,7 @@ from gameauto.run_tft_replay import full_perceive, _load_rois
 
 DEVICE_SERIAL = "4NZ0225613000015"   # hdc list targets 查看
 
-MODE = "observe"   # "observe" = M1 只看 | "act" = M2 交互动作
+MODE = "observe"   # "observe" = M1 只看 | "act" = M2 交互 | "match" = 预游戏自动匹配进游戏
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/
@@ -134,6 +135,34 @@ async def observe(capture: Capture, tm: TemplateMatchTask | None) -> None:
         cv2.destroyAllWindows()
 
 
+# ── M0: match (预游戏自动匹配进游戏) ───────────────────────────────────
+
+async def match(capture: Capture, inp: Input) -> None:
+    """驱动 LOBBY→MATCHING→ACCEPTED_WAIT→IN_GAME, 全图 OCR 找按钮并点击。
+
+    假设启动时已在房间主界面 (能看到「开始游戏」)。进入游戏后退出,
+    后续交棒给 PLANNING (M3 接自动循环)。
+    """
+    frame = screenshot_bgr()
+    if frame is None:
+        print("[match] 拿不到画面, 退出")
+        return
+    h, w = frame.shape[:2]
+    print(f"=== M0 预游戏匹配: 真机 {w}x{h} | OCR 全图驱动 (按 Ctrl+C 中断) ===")
+
+    def grab_png() -> bytes:
+        f = screenshot_bgr()
+        if f is None:
+            return b""
+        ok, buf = cv2.imencode(".png", f)
+        return buf.tobytes() if ok else b""
+
+    tap_fn = make_tap_fn(inp)
+    drv = PreGameDriver(tap_fn, log=lambda msg, *a: print(msg))
+    await drv.run(grab_png, frame_wh=(w, h))
+    print("[match] 已进入游戏。切 MODE=observe 可看感知, 或重跑继续。")
+
+
 # ── M2: act (交互命令行) ───────────────────────────────────────────────
 
 _HELP = """\
@@ -144,6 +173,12 @@ _HELP = """\
   click <x> <y>        点击棋子 (弹面板)
   sell <x> <y>         出售棋子 (长按1s+拖到底)
   equip <slot> <x> <y> 从装备槽 slot(0-2) 拖到棋子(x,y)
+  close                关闭棋子面板
+  carousel             选秀拾取
+  augment [0-2]        海克斯选第N个(默认0)
+  continue             结算/继续
+  shop                 开关商店
+  drop <x> <y>         拾取掉落物(像素)
   tap <x> <y>          裸点击 (像素)
   swipe <x1> <y1> <x2> <y2> [ms]   裸滑动
   help                 帮助
@@ -203,6 +238,18 @@ def _parse_cmd(cmd: str, builder: TftActions, w: int, h: int):
             return builder.sell_champion((px(1), px(2)))
         if c == "equip":
             return builder.equip_from_slot(px(1), (px(2), px(3)))
+        if c == "close":
+            return builder.close_panel()
+        if c == "carousel":
+            return builder.pick_carousel()
+        if c == "augment":
+            return builder.pick_augment(int(parts[1]) if len(parts) > 1 else 0)
+        if c == "continue":
+            return builder.tap_continue()
+        if c == "shop":
+            return builder.toggle_shop()
+        if c == "drop":
+            return builder.click_drop((px(1), px(2)))
         if c == "tap":
             nx, ny = to_normalized(px(1), px(2), w, h)
             return [Action(type="tap", x1=nx, y1=ny, description="裸点击")]
@@ -243,8 +290,10 @@ async def main() -> None:
             await observe(capture, tm)
         elif MODE == "act":
             await act(capture, inp)
+        elif MODE == "match":
+            await match(capture, inp)
         else:
-            print(f"未知 MODE={MODE}, 可选 observe / act")
+            print(f"未知 MODE={MODE}, 可选 observe / act / match")
     except KeyboardInterrupt:
         print("\n中断")
     finally:

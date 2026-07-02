@@ -33,6 +33,7 @@ from gameauto.core.capture.video import VideoCapture
 from gameauto.core.orchestration.base import Action
 from gameauto.skills.tft.actions import TftActions
 from gameauto.skills.tft.workflows import iterate_champions
+from gameauto.skills.tft.pregame import ocr_full as _ocr_full_png
 from gameauto.tools.replay_driver import (
     ReplayDriver,
     stub_perceive,
@@ -477,10 +478,47 @@ def full_perceive(frame_bgr: np.ndarray) -> dict:
     }
 
 
+def text_perceive(frame_bgr: np.ndarray) -> dict:
+    """全图 OCR: 识别整帧所有文字并框出, 挑出掉落物候选 (含 ? 的)。
+
+    复用 pregame.ocr_full (服务端返回 box)。用于:
+      - 全图文字调试 (看屏幕上有什么字、按钮在哪)
+      - 装备掉落物检测 (圆形问号 OCR 成 ? 即掉落物)
+    比 ocr/full 慢 (整帧 det+rec), 调试用。
+    """
+    if frame_bgr is None:
+        return {}
+    ok, buf = cv2.imencode(".png", frame_bgr)
+    png = buf.tobytes() if ok else b""
+    res = _ocr_full_png(png)
+    overlays, details, drops = [], [], []
+    for hit in res.hits:
+        xs = [p[0] for p in hit.box]; ys = [p[1] for p in hit.box]
+        x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+        is_drop = any(c in hit.text for c in "??？？")
+        overlays.append({
+            "box": (x0, y0, x1, y1),
+            "label": hit.text + (" 💧" if is_drop else ""),
+        })
+        if is_drop:
+            cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+            drops.append((cx, cy))
+            details.append(f"  掉落物? {hit.text!r} @ ({cx},{cy})")
+    details.insert(0, f"全图OCR: {len(res.hits)}条文本, 掉落物候选{len(drops)}个 ({res.latency_ms}ms)")
+    return {
+        "text_count": len(res.hits),
+        "drops": drops,
+        "drops_count": len(drops),
+        "overlays": overlays,
+        "details": details,
+    }
+
+
 PERCEIVE_BACKENDS = {
     "stub": stub_perceive,
     "ocr": ocr_perceive,
     "champions": champions_perceive,
+    "text": text_perceive,
     "full": full_perceive,
     "adapter": tft_adapter_perceive,
 }

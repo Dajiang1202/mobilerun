@@ -135,3 +135,42 @@ class TftActions:
         x2, y2 = to_normalized(to_px[0], to_px[1], self.w, self.h)
         return [Action(type="drag", x1=x1, y1=y1, x2=x2, y2=y2, duration_ms=400,
                        description="移动棋子")]
+
+    # ── 场景类 (坐标来自 rois 注释, 没标用默认值保证可可视化) ──────────
+
+    def close_panel(self) -> list[Action]:
+        """关闭棋子面板。点面板外空白处 (标注 ocr:panel_close, 没标默认顶部空白)。"""
+        roi = self._resolve_roi([("ocr", "panel_close"), ("buttons", "panel_close")])
+        x, y = self._roi_mid1000(roi) if roi else (500, 100)
+        return [Action(type="tap", x1=x, y1=y, description="关闭面板")]
+
+    def pick_carousel(self) -> list[Action]:
+        """选秀: 点中心棋子 (标注 ocr:carousel_pick, 没标默认屏幕中心)。"""
+        roi = self._resolve_roi([("ocr", "carousel_pick")])
+        x, y = self._roi_mid1000(roi) if roi else (500, 500)
+        return [Action(type="tap", x1=x, y1=y, description="选秀拾取")]
+
+    def pick_augment(self, idx: int = 0) -> list[Action]:
+        """海克斯强化: 选第 idx 个 (标注 ocr:augment_pick{idx}, 没标默认左起)。"""
+        roi = self._resolve_roi([("ocr", f"augment_pick{idx}")])
+        x, y = self._roi_mid1000(roi) if roi else (250 + idx * 250, 500)
+        return [Action(type="tap", x1=x, y1=y, description=f"海克斯选{idx}")]
+
+    def tap_continue(self) -> list[Action]:
+        """结算/加载后点继续 (标注 ocr:continue_btn, 没标默认中下)。"""
+        roi = self._resolve_roi([("ocr", "continue_btn"), ("buttons", "continue")])
+        x, y = self._roi_mid1000(roi) if roi else (500, 900)
+        return [Action(type="tap", x1=x, y1=y, description="继续")]
+
+    def toggle_shop(self) -> list[Action]:
+        """开关商店 (标注 ocr:shop_toggle 点位; 没标返回空, 提示去标)。"""
+        roi = self._resolve_roi([("ocr", "shop_toggle")])
+        if not roi:
+            return []
+        x, y = self._roi_mid1000(roi)
+        return [Action(type="tap", x1=x, y1=y, description="开关商店")]
+
+    def click_drop(self, pos_px: tuple[int, int]) -> list[Action]:
+        """点击掉落物 (圆形问号/金币), 语义同 click_champion, 单列便于辨读。"""
+        x, y = to_normalized(pos_px[0], pos_px[1], self.w, self.h)
+        return [Action(type="tap", x1=x, y1=y, description="拾取掉落物")]
