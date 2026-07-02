@@ -172,7 +172,7 @@ class ReplayDriver:
             dbg = state.get("debug_image")
             if dbg is not None:
                 cv2.imshow("TFT Replay - debug", dbg)
-            self._preview(frame, ts, advanced, state)
+            self._preview(frame, ts, advanced, state, actions)
 
         # 视频已结束且这一帧是最后一帧 → 再 tick 一次拿不到新帧, 停
         if self._cap.is_finished():
@@ -199,10 +199,13 @@ class ReplayDriver:
             print(f"    {line}")
         print(f"  actions: {_actions_brief(actions) or '(无)'}")
 
-    def _preview(self, frame: np.ndarray, ts: float, advanced: int, state: dict) -> None:
+    def _preview(self, frame: np.ndarray, ts: float, advanced: int, state: dict,
+                 actions: list[Action] | None = None) -> None:
         from gameauto.tools.cv_text import put_text_zh
+        from gameauto.utils.coordinate import to_absolute
 
         disp = frame.copy()
+        fh, fw = disp.shape[:2]
         # perceive 可返回 overlays: [{"box":(l,t,r,b), "label":str}, ...]
         for ov in state.get("overlays", []):
             l, t, r, b = ov.get("box", (0, 0, 0, 0))
@@ -212,6 +215,24 @@ class ReplayDriver:
                 # label 含中文 OCR 结果, 用 PIL 绘制 (cv2.putText 不支持中文)
                 disp = put_text_zh(disp, label, (l, max(0, t - 26)),
                                    color_bgr=(0, 255, 0), px=22)
+        # 动作可视化 (decide 产出的 list[Action]): tap=橙圆点, swipe/drag=橙箭头
+        # 坐标归一化[0-1000] → 帧像素, 与分辨率无关
+        for a in actions or []:
+            if a.type == "tap" and a.x1 is not None and a.y1 is not None:
+                px, py = to_absolute(a.x1, a.y1, fw, fh)
+                cv2.circle(disp, (px, py), 12, (0, 165, 255), -1)
+                cv2.circle(disp, (px, py), 12, (255, 255, 255), 1)
+                if a.description:
+                    disp = put_text_zh(disp, a.description, (px + 14, py - 10),
+                                       color_bgr=(0, 165, 255), px=20)
+            elif a.type in ("swipe", "drag") and None not in (a.x1, a.y1, a.x2, a.y2):
+                p1 = to_absolute(a.x1, a.y1, fw, fh)
+                p2 = to_absolute(a.x2, a.y2, fw, fh)
+                cv2.arrowedLine(disp, p1, p2, (0, 165, 255), 3, tipLength=0.2)
+                cv2.circle(disp, p1, 6, (0, 165, 255), -1)
+                if a.description:
+                    disp = put_text_zh(disp, a.description, (p1[0], p1[1] - 26),
+                                       color_bgr=(0, 165, 255), px=20)
         cv2.setWindowTitle(
             "TFT Replay",
             f"TFT Replay — t={ts:.2f}s dropped≈{advanced} (按 q 退出)",

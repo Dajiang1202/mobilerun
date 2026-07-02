@@ -31,6 +31,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from gameauto.core.capture.video import VideoCapture
 from gameauto.core.orchestration.base import Action
+from gameauto.skills.tft.actions import TftActions
+from gameauto.skills.tft.workflows import iterate_champions
 from gameauto.tools.replay_driver import (
     ReplayDriver,
     stub_perceive,
@@ -46,7 +48,7 @@ VIDEO_PATH = r"D:\gameauto\mobilerun\SVID_20260604_154906_1.mp4"
 
 # 感知 / 决策后端 (见下方 PERCEIVE_BACKENDS / DECIDE_BACKENDS 的可选键)
 PERCEIVE = "full"  # "stub" | "ocr" | "champions" | "full" | "adapter"
-DECIDE = "stub"      # "stub" | "adapter"
+DECIDE = "tft"       # "stub" | "tft" | "adapter"
 
 # 播放与节奏
 SPEED = 1.0          # 播放倍速 (1.0=实时, 2.0=快一倍, 0.5=慢放)
@@ -91,6 +93,24 @@ def tft_adapter_decide(state: dict) -> list[Action]:
     """适配器示例: 把现有 TftDecision.decide() 包成 decide 签名。"""
     raise NotImplementedError(
         "tft_adapter_decide: 接现有 TftDecision 时取消注释实现 (见源码)"
+    )
+
+
+def tft_decide(state: dict) -> list[Action]:
+    """TFT 决策 (示例): 遍历所有我方棋子 → 点击弹面板。
+
+    用顶层 workflow (iterate_champions) + 中层 TftActions 产出声明式 list[Action]。
+    回放里画出来 (tap=圆点/箭头), 真机里 BaseInput 执行 —— 同一份动作, 两端共用。
+    state 需含 frame_w/frame_h/board_clicks/bench_clicks (由 full/champions perceive 提供)。
+    """
+    w = state.get("frame_w"); h = state.get("frame_h")
+    if not w or not h:
+        return []
+    builder = TftActions(_load_rois(), w, h)
+    return iterate_champions(
+        builder,
+        state.get("board_clicks", []),
+        state.get("bench_clicks", []),
     )
 
 
@@ -333,6 +353,14 @@ def _ocr_below_bar(bar, frame_bgr: np.ndarray, w: int, h: int) -> str:
     return txt.strip()
 
 
+def _bar_click_px(bar, below_mult: float = HP_CLICK_BELOW) -> tuple[int, int]:
+    """血条 → 棋子点击点 (血条底部正下方, 像素)。供中层动作/顶层遍历用。"""
+    x1, y1, x2, y2 = bar
+    cx = (x1 + x2) // 2
+    cy = int(y2 + (y2 - y1) * below_mult)
+    return (cx, cy)
+
+
 def _emit_bars(fbars, prefix: str, frame_bgr, w, h):
     """把一组血条转成 overlays + details (含点击点; 可选血条下 OCR)。"""
     overlays, details = [], []
@@ -340,14 +368,13 @@ def _emit_bars(fbars, prefix: str, frame_bgr, w, h):
     if HP_OCR_BELOW and fbars:
         ocr_texts = list(_OCR_POOL.map(
             lambda bar: _ocr_below_bar(bar, frame_bgr, w, h), fbars))
-    for i, (fx1, fy1, fx2, fy2) in enumerate(fbars):
-        bar_h = fy2 - fy1
+    for i, bar in enumerate(fbars):
+        fx1, fy1, fx2, fy2 = bar
         overlays.append({"box": (fx1, fy1, fx2, fy2), "label": f"{prefix}{i}"})
         txt = ocr_texts[i] if i < len(ocr_texts) else ""
         if txt:
             overlays.append({"box": (fx1, fy2 + 4, fx2, fy2 + 4), "label": txt})
-        cx = (fx1 + fx2) // 2
-        cy = int(fy2 + bar_h * HP_CLICK_BELOW)
+        cx, cy = _bar_click_px(bar)
         s = 8
         overlays.append({"box": (cx - s, cy - s, cx + s, cy + s), "label": "点"})
         details.append(f"  {prefix}{i} ({fx1},{fy1})-({fx2},{fy2})  点击→({cx},{cy})"
@@ -410,6 +437,12 @@ def champions_perceive(frame_bgr: np.ndarray) -> dict:
     return {
         "champion_count": len(board_bars),
         "bench_count": len(bench_bars),
+        "board_bars": board_bars,           # 像素框, 供 decide 层用
+        "bench_bars": bench_bars,
+        "board_clicks": [_bar_click_px(b) for b in board_bars],   # 棋子点击点(像素)
+        "bench_clicks": [_bar_click_px(b) for b in bench_bars],
+        "frame_w": w,                       # 帧分辨率, decide 层换算坐标用
+        "frame_h": h,
         "overlays": overlays,
         "details": details,
         "debug_image": debug_img,
@@ -428,6 +461,11 @@ def full_perceive(frame_bgr: np.ndarray) -> dict:
     details = list(ch_st.get("details", [])) + list(ocr_st.get("details", []))
     return {
         "champion_count": ch_st.get("champion_count", 0),
+        "bench_count": ch_st.get("bench_count", 0),
+        "board_clicks": ch_st.get("board_clicks", []),
+        "bench_clicks": ch_st.get("bench_clicks", []),
+        "frame_w": ch_st.get("frame_w", 0),
+        "frame_h": ch_st.get("frame_h", 0),
         "ocr": ocr_st.get("ocr", {}),
         "gold": ocr_st.get("gold"),
         "level": ocr_st.get("level"),
@@ -448,6 +486,7 @@ PERCEIVE_BACKENDS = {
 }
 DECIDE_BACKENDS = {
     "stub": stub_decide,
+    "tft": tft_decide,
     "adapter": tft_adapter_decide,
 }
 
