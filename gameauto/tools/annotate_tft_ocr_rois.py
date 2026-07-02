@@ -46,6 +46,7 @@ OCR_ROIS: list[tuple[str, str]] = [
     ("champion", "角色识别区域"),
     # 棋子血条检测用 (champions 后端)
     ("own_board", "我方棋盘区 (血条搜索范围, champions 后端用)"),
+    ("bench", "战备区 (bench棋子血条搜索范围, champions 后端用)"),
     # 数字字段 (可选, 和上面的并列)
     ("gold", "金币数"),
     ("level", "等级"),

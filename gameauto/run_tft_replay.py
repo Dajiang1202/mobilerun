@@ -236,6 +236,11 @@ HP_OCR_BELOW = False             # 血条下方OCR(血条本身无文字, 默认
 HP_OCR_BELOW_W = 1.2             # OCR 区域宽 = 血条宽 × 此值
 HP_OCR_BELOW_H = 1.1             # OCR 区域高 = 血条宽 × 此值 (棋子名/花费区)
 
+# 战备区(bench)血条 — 更短更窄, 阈值单独一组; 棋盘血条仍用上面的 HP_* 参数
+BENCH_GREEN_TOL = 30            # 容差(同棋盘, 后排暗绿)
+BENCH_BAR_MIN_RATIO = 4.0       # bench 血条更短, 长宽比下限放宽(6→4)
+BENCH_MIN_WIDTH = 8             # bench 血条更窄, 最小宽度调小(12→8)
+
 
 def _flat_roi(rois: dict, section: str, key: str):
     """从 rois(dict) 读 [section][key] 的比例 ROI, 没有返回 None。"""
@@ -252,18 +257,35 @@ def _flat_roi(rois: dict, section: str, key: str):
         return None
 
 
-def _detect_green_bars(crop_bgr: np.ndarray):
-    """在 BGR 小图里检测绿色长条, 返回 [(x1,y1,x2,y2), ...] (crop 内坐标) + 掩膜。"""
+def _section_as_roi(rois: dict, section: str):
+    """section 本身就是比例 ROI (如 rois.yaml 里 bench: {left,...}), 没有返回 None。"""
+    box = rois.get(section) if isinstance(rois, dict) else None
+    if not box or not isinstance(box, dict):
+        return None
+    try:
+        return (float(box["left"]), float(box["top"]),
+                float(box["right"]), float(box["bottom"]))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _detect_green_bars(crop_bgr: np.ndarray, tol: float = HP_GREEN_TOL,
+                       min_ratio: float = HP_BAR_MIN_RATIO,
+                       min_width: int = HP_MIN_WIDTH):
+    """在 BGR 小图里检测绿色长条, 返回 [(x1,y1,x2,y2), ...] (crop 内坐标) + 掩膜。
+
+    参数化: 棋盘血条用默认值, 战备区血条更短更窄 → 传更小的 min_ratio/min_width。
+    """
     r = crop_bgr[:, :, 2].astype(np.int16)
     g = crop_bgr[:, :, 1].astype(np.int16)
     b = crop_bgr[:, :, 0].astype(np.int16)
     gr, gg, gb = HP_GREEN_RGB
     mask = (
-        (np.abs(r - gr) <= HP_GREEN_TOL)
-        & (np.abs(g - gg) <= HP_GREEN_TOL)
-        & (np.abs(b - gb) <= HP_GREEN_TOL)
+        (np.abs(r - gr) <= tol)
+        & (np.abs(g - gg) <= tol)
+        & (np.abs(b - gb) <= tol)
     ).astype(np.uint8) * 255
-    # 水平方向连接血条断段
+    # 水平方向连接血条断段 (桥接内部黑线)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
@@ -271,74 +293,100 @@ def _detect_green_bars(crop_bgr: np.ndarray):
     cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for c in cnts:
         x, y, bw, bh = cv2.boundingRect(c)
-        if bw < HP_MIN_WIDTH or bh < 2:
+        if bw < min_width or bh < 2:
             continue
-        if bw / bh < HP_BAR_MIN_RATIO:
+        if bw / bh < min_ratio:
             continue
         bars.append((x, y, x + bw, y + bh))
     return bars, mask
 
 
-def champions_perceive(frame_bgr: np.ndarray) -> dict:
-    """检测我方棋子血条 → 定位棋子。
+def _bars_in_roi(frame_bgr: np.ndarray, roi: tuple[float, float, float, float],
+                 tol: float, min_ratio: float, min_width: int):
+    """在整帧的某个比例 ROI 区域检测绿色血条。
 
-    搜索区 ROI 来源 (优先): ocr:own_board (用标注工具画) → board:full → 整帧。
-    返回 state 含 champion_count / bars / overlays(血条框+点击点) /
-    debug_image(绿色掩膜, SHOW 时单独窗口显示) / details。
+    返回 (fbars, mask, (L,T)): fbars 为整帧坐标, mask 为该 crop 的掩膜。
+    """
+    h, w = frame_bgr.shape[:2]
+    L = int(roi[0] * w); T = int(roi[1] * h)
+    R = int(roi[2] * w); B = int(roi[3] * h)
+    crop = frame_bgr[T:B, L:R]
+    if crop.size == 0:
+        return [], None, (L, T)
+    bars, mask = _detect_green_bars(crop, tol, min_ratio, min_width)
+    fbars = [(L + x1, T + y1, L + x2, T + y2) for (x1, y1, x2, y2) in bars]
+    return fbars, mask, (L, T)
+
+
+def _ocr_below_bar(bar, frame_bgr: np.ndarray, w: int, h: int) -> str:
+    """OCR 血条下方区域 (棋子名/花费), HP_OCR_BELOW 关时不会被调用。"""
+    fx1, fy1, fx2, fy2 = bar
+    bw = fx2 - fx1
+    cy1 = fy2 + int(bw * 0.2)
+    cy2 = cy1 + int(bw * HP_OCR_BELOW_H)
+    cx1 = max(0, (fx1 + fx2) // 2 - int(bw * HP_OCR_BELOW_W / 2))
+    cx2 = min(w, (fx1 + fx2) // 2 + int(bw * HP_OCR_BELOW_W / 2))
+    crop_region = frame_bgr[max(0, cy1):max(0, cy2), cx1:cx2]
+    if crop_region.size == 0:
+        return ""
+    txt, _ = _ocr_image(crop_region)
+    return txt.strip()
+
+
+def _emit_bars(fbars, prefix: str, frame_bgr, w, h):
+    """把一组血条转成 overlays + details (含点击点; 可选血条下 OCR)。"""
+    overlays, details = [], []
+    ocr_texts: list[str] = []
+    if HP_OCR_BELOW and fbars:
+        ocr_texts = list(_OCR_POOL.map(
+            lambda bar: _ocr_below_bar(bar, frame_bgr, w, h), fbars))
+    for i, (fx1, fy1, fx2, fy2) in enumerate(fbars):
+        bar_h = fy2 - fy1
+        overlays.append({"box": (fx1, fy1, fx2, fy2), "label": f"{prefix}{i}"})
+        txt = ocr_texts[i] if i < len(ocr_texts) else ""
+        if txt:
+            overlays.append({"box": (fx1, fy2 + 4, fx2, fy2 + 4), "label": txt})
+        cx = (fx1 + fx2) // 2
+        cy = int(fy2 + bar_h * HP_CLICK_BELOW)
+        s = 8
+        overlays.append({"box": (cx - s, cy - s, cx + s, cy + s), "label": "点"})
+        details.append(f"  {prefix}{i} ({fx1},{fy1})-({fx2},{fy2})  点击→({cx},{cy})"
+                       + (f"  OCR={txt!r}" if txt else ""))
+    return overlays, details
+
+
+def champions_perceive(frame_bgr: np.ndarray) -> dict:
+    """检测我方棋子血条 → 定位棋子 (棋盘 + 战备区)。
+
+    棋盘血条: 搜索 ocr:own_board (没标则整帧), 用 HP_* 阈值。
+    战备区血条: 搜索 ocr:bench (没标则 rois.yaml 的 bench:), 用 BENCH_* 阈值(更短更窄)。
+    返回 state 含 champion_count(棋盘) / bench_count / overlays / details / debug_image。
     """
     if frame_bgr is None:
         return {}
     rois = _load_rois()
     h, w = frame_bgr.shape[:2]
 
-    # 搜索区: 优先用标注的 ocr:own_board; 没标就搜整帧 (board.full 默认太窄, 只盖部分行)
-    roi = (_flat_roi(rois, "ocr", "own_board")
-           or (0.0, 0.0, 1.0, 1.0))
-    L = int(roi[0] * w); T = int(roi[1] * h)
-    R = int(roi[2] * w); B = int(roi[3] * h)
-    crop = frame_bgr[T:B, L:R]
-    if crop.size == 0:
-        return {"champion_count": 0, "overlays": [], "details": ["搜索区为空"]}
+    # ── 棋盘血条 ──
+    board_roi = (_flat_roi(rois, "ocr", "own_board")
+                 or (0.0, 0.0, 1.0, 1.0))
+    board_bars, board_mask, board_off = _bars_in_roi(
+        frame_bgr, board_roi, HP_GREEN_TOL, HP_BAR_MIN_RATIO, HP_MIN_WIDTH)
 
-    bars, mask = _detect_green_bars(crop)
+    # ── 战备区血条 (如有标注; 没标跳过) ──
+    bench_roi = (_flat_roi(rois, "ocr", "bench")
+                 or _section_as_roi(rois, "bench"))
+    bench_bars = []
+    if bench_roi:
+        bench_bars, _, _ = _bars_in_roi(
+            frame_bgr, bench_roi, BENCH_GREEN_TOL, BENCH_BAR_MIN_RATIO, BENCH_MIN_WIDTH)
 
-    # 转回整帧坐标
-    fbars = [(L + x1, T + y1, L + x2, T + y2) for (x1, y1, x2, y2) in bars]
-
-    # 可选: 每条血条下方区域 OCR (并行), 把文字标在血条旁
-    ocr_texts: list[str] = []
-    if HP_OCR_BELOW and fbars:
-        def _ocr_below(bar):
-            fx1, fy1, fx2, fy2 = bar
-            bw = fx2 - fx1
-            cy1 = fy2 + int(bw * 0.2)
-            cy2 = cy1 + int(bw * HP_OCR_BELOW_H)
-            cx1 = max(0, (fx1 + fx2) // 2 - int(bw * HP_OCR_BELOW_W / 2))
-            cx2 = min(w, (fx1 + fx2) // 2 + int(bw * HP_OCR_BELOW_W / 2))
-            crop_region = frame_bgr[max(0, cy1):max(0, cy2), cx1:cx2]
-            if crop_region.size == 0:
-                return ""
-            txt, _ = _ocr_image(crop_region)
-            return txt.strip()
-        ocr_texts = list(_OCR_POOL.map(_ocr_below, fbars))
-
-    overlays = []
-    details = [f"检测到 {len(fbars)} 个血条 (搜索区 ocr:own_board)"]
-    for i, (fx1, fy1, fx2, fy2) in enumerate(fbars):
-        bar_h = fy2 - fy1
-        overlays.append({"box": (fx1, fy1, fx2, fy2), "label": f"血条{i}"})
-        # 血条下方 OCR 文字 (如有)
-        txt = ocr_texts[i] if i < len(ocr_texts) else ""
-        if txt:
-            overlays.append({"box": (fx1, fy2 + 4, fx2, fy2 + 4),
-                             "label": txt})
-        # 点击点: 血条底部正下方 (棋子身体), 用小方块标记
-        cx = (fx1 + fx2) // 2
-        cy = int(fy2 + bar_h * HP_CLICK_BELOW)
-        s = 8
-        overlays.append({"box": (cx - s, cy - s, cx + s, cy + s), "label": "点"})
-        details.append(f"  血条{i} ({fx1},{fy1})-({fx2},{fy2})  点击→({cx},{cy})"
-                       + (f"  OCR={txt!r}" if txt else "  OCR=''"))
+    overlays, details = [], []
+    details.append(f"棋盘血条: {len(board_bars)}  战备血条: {len(bench_bars)}")
+    ov, det = _emit_bars(board_bars, "棋盘", frame_bgr, w, h)
+    overlays += ov; details += det
+    ov, det = _emit_bars(bench_bars, "战备", frame_bgr, w, h)
+    overlays += ov; details += det
 
     # champion 弹名区域 (如有标注), 画出来便于核对几何
     champ_roi = _flat_roi(rois, "ocr", "champion")
@@ -349,12 +397,19 @@ def champions_perceive(frame_bgr: np.ndarray) -> dict:
             "label": "champion区",
         })
 
-    # debug 图: 掩膜命中的绿色像素 (原图色, 其余黑), 方便调 HP_GREEN_TOL
-    # SHOW_DEBUG=False 时不产出 → 不开 debug 窗
-    debug_img = cv2.bitwise_and(crop, crop, mask=mask) if SHOW_DEBUG else None
+    # debug 图: 棋盘搜索区的绿色掩膜 (原图色, 其余黑), 调 HP_GREEN_TOL 用
+    debug_img = None
+    if SHOW_DEBUG and board_mask is not None:
+        L, T = board_off
+        h2, w2 = frame_bgr.shape[:2]
+        R = min(w2, L + board_mask.shape[1]); B = min(h2, T + board_mask.shape[0])
+        debug_img = frame_bgr.copy()
+        debug_img[T:B, L:R] = cv2.bitwise_and(
+            frame_bgr[T:B, L:R], frame_bgr[T:B, L:R], mask=board_mask)
 
     return {
-        "champion_count": len(fbars),
+        "champion_count": len(board_bars),
+        "bench_count": len(bench_bars),
         "overlays": overlays,
         "details": details,
         "debug_image": debug_img,
