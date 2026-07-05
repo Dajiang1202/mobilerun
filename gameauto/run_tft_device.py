@@ -38,7 +38,8 @@ from gameauto.utils.coordinate import to_normalized
 
 # 复用回放工作台里写好的感知后端 (full_perceive = 血条 + OCR)
 from gameauto.run_tft_replay import (
-    full_perceive, decide_perceive, rule_decide, _load_rois, _flat_roi, _ocr_image,
+    full_perceive, decide_perceive, detect_items,
+    _load_rois, _flat_roi, _ocr_image,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -305,6 +306,90 @@ def _detect_result(frame) -> bool:
     return any(re.search(r"第.{0,3}名", h.text) for h in res.hits)
 
 
+def _shop_open(frame, rois, fw, fh) -> bool:
+    """refresh_btn 区有「刷新」= 商店开着。"""
+    rroi = _flat_roi(rois, "ocr", "refresh_btn")
+    if not rroi:
+        return False
+    L, T, R, B = int(rroi[0]*fw), int(rroi[1]*fh), int(rroi[2]*fw), int(rroi[3]*fh)
+    return "刷新" in _ocr_image(frame[T:B, L:R])[0]
+
+
+async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh) -> None:
+    """备战阶段的完整动作序列 (真机, 带中途感知):
+
+    顺序: 先买(店开着, 遍历会关商店) → 上装备(开装备栏→检测→拖) → 遍历棋子(点→OCR名→关)
+          → 卖(战备>5 卖最后)。掉落物(问号)暂靠 decide_perceive drops, 识别不稳后续改模板。
+    """
+    board = st.get("board_clicks", []) or []
+    bench = st.get("bench_clicks", []) or []
+    ocr = st.get("ocr", {})
+
+    # 0) 问号掉落物 (drops 来自 decide_perceive 全图 OCR; 识别不稳, 有就点)
+    for dp in st.get("drops", []) or []:
+        print(f"  点掉落物 @ {dp}")
+        for a in builder.click_drop(dp):
+            await _execute(a, inp)
+        await asyncio.sleep(0.4)
+
+    # 1) 商店购买 (店开着才买; 放遍历前, 避免遍历关了商店买不了)
+    if st.get("shop_open"):
+        cands = [i for i in range(5) if ocr.get(f"shop{i}")]
+        if cands:
+            idx = random.choice(cands)
+            print(f"  买商店{idx} ({ocr.get(f'shop{idx}')!r})")
+            for a in builder.buy_shop_slot(idx):
+                await _execute(a, inp)
+            await asyncio.sleep(0.5)
+
+    # 2) 上装备: 点装备栏按钮 → 重新截图检测金边 → 有就拖给场上棋子 → 关装备栏
+    equip_btn = _flat_roi(rois, "ocr", "equip_btn")
+    target = board[0] if board else (bench[0] if bench else None)
+    if equip_btn and target:
+        ex, ey = builder._roi_mid1000(equip_btn)
+        await _execute(Action(type="tap", x1=ex, y1=ey, description="开装备栏"), inp)
+        await asyncio.sleep(0.6)
+        f2 = screenshot_bgr()
+        if f2 is not None:
+            items, _, _ = detect_items(f2, rois)
+            for slot_name, present in items.items():
+                if present:
+                    slot_idx = int(slot_name.replace("item", ""))
+                    print(f"  装备槽{slot_idx}→棋子 @ {target}")
+                    for a in builder.equip_from_slot(slot_idx, target):
+                        await _execute(a, inp)
+                    await asyncio.sleep(0.4)
+        await _execute(Action(type="tap", x1=ex, y1=ey, description="关装备栏"), inp)
+        await asyncio.sleep(0.4)
+
+    # 3) 遍历棋子 (棋盘+战备): 点开 → OCR champion 区读名 → 关面板
+    champion_roi = _flat_roi(rois, "ocr", "champion")
+    for label, clicks in (("棋盘", board), ("战备", bench)):
+        for i, pos in enumerate(clicks):
+            print(f"  点{label}{i} @ {pos}")
+            for a in builder.click_champion(pos):
+                await _execute(a, inp)
+            await asyncio.sleep(0.5)
+            if champion_roi:
+                L, T, R, B = (int(champion_roi[0]*fw), int(champion_roi[1]*fh),
+                              int(champion_roi[2]*fw), int(champion_roi[3]*fh))
+                f3 = screenshot_bgr()
+                if f3 is not None:
+                    name, _ = _ocr_image(f3[T:B, L:R])
+                    print(f"    识别: {name!r}")
+            for a in builder.close_panel():
+                await _execute(a, inp)
+            await asyncio.sleep(0.3)
+
+    # 4) 卖: 战备>5 → 卖最后一个
+    if len(bench) > 5:
+        last = bench[-1]
+        print(f"  战备{len(bench)}个>5, 卖最后一个 @ {last}")
+        for a in builder.sell_champion(last):
+            await _execute(a, inp)
+        await asyncio.sleep(0.8)
+
+
 async def auto(capture: Capture, inp: Input, tm) -> None:
     """自动打一局: 大厅则先匹配 → 备战按规则动作 / 战斗等待 / 结算点继续退出。
 
@@ -355,11 +440,12 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
         stage, timer = _ocr_stage_timer(frame, rois, fw, fh)
         phase = tracker.update(stage, timer)
 
-        # 进战斗 → 点 gold 收起商店看战斗 (每轮战斗只收一次)
+        # 进战斗 → 商店若开着(看见刷新) 才点 gold 收起 (每轮战斗只收一次)
         if phase == "战斗" and not shop_closed_this_combat:
-            print("[战斗] 点 gold 收起商店")
-            for a in builder.toggle_shop():   # toggle_shop 点 gold 位置
-                await _execute(a, inp)
+            if _shop_open(frame, rois, fw, fh):
+                print("[战斗] 看见刷新, 点 gold 收起商店")
+                for a in builder.toggle_shop():
+                    await _execute(a, inp)
             shop_closed_this_combat = True
         if phase != "战斗":
             shop_closed_this_combat = False
@@ -379,29 +465,33 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                     print(f"[海克斯] 检测到, 随机选第 {idx} 个")
                     for a in builder.pick_augment(idx):
                         await _execute(a, inp)
-                    await asyncio.sleep(2.5)   # 等关面板
+                    await asyncio.sleep(2.5)
                     continue
                 elif "选秀" in txt:
-                    print("[选秀] 检测到, 走中心")
-                    for a in builder.pick_carousel():
-                        await _execute(a, inp)
-                    await asyncio.sleep(2.5)
+                    # 选秀: 每 2s 点一次中心, 直到离开选秀界面(最多 15 次)
+                    print("[选秀] 检测到, 每 2s 走中心")
+                    for _ in range(15):
+                        for a in builder.pick_carousel():
+                            await _execute(a, inp)
+                        await asyncio.sleep(2.0)
+                        f2 = screenshot_bgr()
+                        if f2 is None:
+                            break
+                        ok2, buf2 = cv2.imencode(".png", f2)
+                        if not ok2 or "选秀" not in ocr_full(buf2.tobytes()).combined_text:
+                            break
                     continue
 
         print(f"[{phase}] stage={stage} timer={timer} ord={tracker.ordinal} "
               f"acted={tracker.acted_this_planning}")
 
         if phase == "备战" and not tracker.acted_this_planning:
-            st = decide_perceive(frame)   # full + 掉落物(?) + 商店开闭(刷新字)
-            actions = rule_decide(st, builder)
-            print(f"  备战产出 {len(actions)} 个动作, 执行前 6 个")
-            for a in actions[:6]:
-                try:
-                    print(f"    -> {a.type} {a.description}")
-                    await _execute(a, inp)
-                    await asyncio.sleep(0.6)   # 等动画
-                except Exception as e:
-                    print(f"    动作失败: {e}")
+            st = decide_perceive(frame)   # full + 掉落物(?) + 商店开闭
+            board_n = len(st.get("board_clicks", []) or [])
+            bench_n = len(st.get("bench_clicks", []) or [])
+            print(f"  备战: 棋盘{board_n} 战备{bench_n} 店开={st.get('shop_open')} "
+                  f"掉落{len(st.get('drops', []) or [])} 装备{st.get('items')}")
+            await _do_planning(frame, st, builder, inp, rois, fw, fh)
             tracker.mark_acted()
         elif phase == "结算":
             cont = builder.tap_continue()
