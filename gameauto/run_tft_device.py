@@ -60,7 +60,8 @@ SCALE = 2
 MAX_FPS = 10
 
 # observe (M1)
-SHOW = True            # 显示预览窗 (画血条/ROI 框 + 阶段)
+SHOW = True            # 显示预览窗 (OCR结果/棋子名/决策/血条)
+SHOW_ROIS = False      # 预览窗是否画 ROI 框 (调试用, 默认关)
 TICK_INTERVAL = 0.5    # 每帧间隔(s)
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -420,6 +421,7 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
     total = len(board) + len(bench)
     print(f"  [遍历] 共 {total} 个棋子 (棋盘{len(board)} + 战备{len(bench)}), 逐个点击:")
     collected = {"棋盘": [], "战备": []}
+    names_map: dict = {}                                # {点击位置: 名字}, 供预览可视化
     for label, clicks in (("棋盘", board), ("战备", bench)):
         for i, pos in enumerate(clicks):
             print(f"  [点击] {label}{i}/{len(clicks)} @ {pos}")
@@ -442,6 +444,7 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
                     cv2.imencode(".png", crop)[1].tofile(
                         str(save_dir / f"{label}{i}_{safe}.png"))
             collected[label].append(name or "?")
+            names_map[pos] = name or "?"
             for a in builder.close_panel():
                 await _execute(a, inp)
             await asyncio.sleep(0.4)
@@ -456,6 +459,8 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
         for a in builder.sell_champion(last):
             await _execute(a, inp)
         await asyncio.sleep(0.8)
+
+    return names_map
 
 
 async def _do_spectate(inp: Input, fw: int, fh: int) -> None:
@@ -576,6 +581,8 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
     drops_done_this_combat = False
     walked_home_this_combat = False
     last_board: list = []          # 最近一次备战检出的场上棋子点击点, 战斗走回老巢用
+    viz_names: dict = {}           # {点击位置: 棋子名}, 预览窗画名字
+    viz_st: dict = {}              # 最近一次 decide_perceive 结果, 预览窗画 OCR/血条
     prev_stage: str | None = None
     shop_seen_this_stage = False
     stages_no_shop = 0          # 连续未见商店的 stage 数; ≥2 → 判定已死亡
@@ -681,12 +688,13 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
 
         if phase == "备战" and not tracker.acted_this_planning:
             st = decide_perceive(frame)   # full + 掉落物(?) + 商店开闭
-            last_board = st.get("board_clicks", []) or []   # 战斗走回老巢用
+            viz_st = st                   # 预览窗画 OCR/血条
+            last_board = st.get("board_clicks", []) or []
             board_n = len(last_board)
             bench_n = len(st.get("bench_clicks", []) or [])
             print(f"  备战: 棋盘{board_n} 战备{bench_n} 店开={st.get('shop_open')} "
                   f"掉落{len(st.get('drops', []) or [])} 装备{st.get('items')}")
-            await _do_planning(frame, st, builder, inp, rois, fw, fh)
+            viz_names = await _do_planning(frame, st, builder, inp, rois, fw, fh)
             tracker.mark_acted()
         elif phase == "结算":
             cont = builder.tap_continue()
@@ -699,8 +707,47 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
 
         if SHOW:
             disp = frame.copy()
-            disp = overlay_text(disp, f"{phase}  stage={stage} t={timer}",
-                                (20, 20), color_bgr=(0, 255, 255), px=30)
+
+            # 血条框 (棋盘+战备, 来自最近感知)
+            for bar_key, col in (("board_bars", (0, 255, 0)),
+                                 ("bench_bars", (0, 200, 255))):
+                for bx in viz_st.get(bar_key, []) or []:
+                    cv2.rectangle(disp, (bx[0], bx[1]), (bx[2], bx[3]), col, 2)
+
+            # 棋子名 (在点击位置旁标出识别到的名字)
+            for pos, nm in viz_names.items():
+                disp = overlay_text(disp, nm, (pos[0] - 30, pos[1] + 12),
+                                    color_bgr=(0, 255, 255), px=18, bg_alpha=0.6)
+
+            # 可选: ROI 框
+            if SHOW_ROIS:
+                for key in ("own_board", "bench", "drop_region", "home",
+                            "stage", "timer", "gold", "champion"):
+                    roi = _flat_roi(rois, "ocr", key)
+                    if roi:
+                        cv2.rectangle(disp,
+                                      (int(roi[0]*fw), int(roi[1]*fh)),
+                                      (int(roi[2]*fw), int(roi[3]*fh)),
+                                      (128, 128, 128), 1)
+
+            # 左上信息块: 阶段 + OCR 结果 + 决策摘要
+            ocr = viz_st.get("ocr", {}) if viz_st else {}
+            lines = [
+                f"{phase}  stage={stage}  t={timer}  ord={tracker.ordinal}",
+                f"gold={ocr.get('gold','')}  shop={[ocr.get(f'shop{i}','') or '·' for i in range(5)]}",
+                f"店开={viz_st.get('shop_open','-')}  装备={viz_st.get('items','-')}  掉落={len(viz_st.get('drops',[]) or []) if viz_st else 0}",
+            ]
+            if viz_names:
+                board_names = [v for k, v in viz_names.items()
+                               if k in (viz_st.get("board_clicks") or [])]
+                bench_names = [v for k, v in viz_names.items()
+                               if k in (viz_st.get("bench_clicks") or [])]
+                lines.append(f"上场({len(board_names)}): {board_names}")
+                lines.append(f"场下({len(bench_names)}): {bench_names}")
+            for i, line in enumerate(lines):
+                disp = overlay_text(disp, line, (15, 15 + i * 32),
+                                    color_bgr=(255, 255, 255), px=22, bg_alpha=0.55)
+
             cv2.imshow("TFT auto", disp)
             if (cv2.waitKey(1) & 0xFF) == ord("q"):
                 break
