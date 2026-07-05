@@ -42,6 +42,7 @@ logger = logging.getLogger("gameauto.tft.pregame")
 OCR_URL = "http://127.0.0.1:8089/ocr"   # 别用 localhost (Win→WSL2 IPv6 超时)
 OCR_INTERVAL = 3.0                        # MATCHING 时每 N 秒 OCR 一次
 ACCEPT_TIMEOUT = 15.0                     # 点接受后等多久判成败
+MATCH_TIMEOUT = 45.0                      # 点开始游戏后等多久「接受」, 超时回 LOBBY 重点
 OCR_THRESHOLD = 0.5                       # OCR 置信度阈值
 
 # 关键词: 用包含匹配抗 OCR 抖动 ("开始游戏" 可能识别成 "开始" / "并始游戏")
@@ -181,6 +182,7 @@ class PreGameDriver:
         self.state = LOBBY
         self._accept_at: float | None = None
         self._last_ocr_at: float = 0.0
+        self._match_started_at: float | None = None   # 进 MATCHING 的时刻
 
     async def run(self, grab_png_fn, *, frame_wh: tuple[int, int]) -> str:
         """主循环。grab_png_fn: () -> bytes(PNG); frame_wh: 截图帧宽高。
@@ -212,23 +214,26 @@ class PreGameDriver:
             self._log(f"[LOBBY] 看到「开始游戏」→ 点击 ({x},{y})")
             await self._tap(x, y)
             self.state = MATCHING
-            self._last_ocr_at = time.time()
+            now = time.time()
+            self._last_ocr_at = now
+            self._match_started_at = now   # 计 MATCH_TIMEOUT 用
             await asyncio.sleep(2.0)  # 给 UI 切换时间
 
     # ── MATCHING ───────────────────────────────────────────────────────
 
     async def _step_matching(self, png: bytes, w: int, h: int) -> None:
         now = time.time()
+        # 超时: 点开始游戏后 MATCH_TIMEOUT 仍没「接受」→ tap 可能丢了/匹配超时, 回 LOBBY 重点
+        if self._match_started_at and now - self._match_started_at > MATCH_TIMEOUT:
+            self._log(f"[MATCHING] 超 {MATCH_TIMEOUT:.0f}s 未现「接受」, 回 LOBBY 重试")
+            self.state = LOBBY
+            self._match_started_at = None
+            return
         if now - self._last_ocr_at < OCR_INTERVAL:
             return
         self._last_ocr_at = now
         res = ocr_full(png)
         self._log(f"[MATCHING] OCR {res.latency_ms}ms | 全图: {res.combined_text[:60]!r}")
-        # 又见「开始游戏」→ 上次点击没生效(常见: scrcpy 首次 touch 丢弃), 回 LOBBY 重点
-        if res.find(START_KEYWORDS):
-            self._log("[MATCHING] 又见「开始游戏」→ 上次点击未生效, 回 LOBBY 重试")
-            self.state = LOBBY
-            return
         hit = res.find(ACCEPT_KEYWORDS)
         if hit:
             x, y = hit_to_1000(hit, w, h)
