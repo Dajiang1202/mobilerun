@@ -247,13 +247,13 @@ class PreGameDriver:
 
     async def _step_accepted_wait(self, png: bytes, w: int, h: int) -> None:
         now = time.time()
-        res = ocr_full(png)
+        # res = ocr_full(png)
         # 1) 又见"开始游戏" → 匹配失败, 回 LOBBY
-        if res.find(START_KEYWORDS):
-            self._log("[ACCEPTED_WAIT] 又见「开始游戏」→ 匹配失败, 回 LOBBY")
-            self.state = LOBBY
-            self._accept_at = None
-            return
+        # if res.find(START_KEYWORDS):
+        #     self._log("[ACCEPTED_WAIT] 又见「开始游戏」→ 匹配失败, 回 LOBBY")
+        #     self.state = LOBBY
+        #     self._accept_at = None
+        #     return
         # 2) stage ROI 出 X-Y → 进入游戏
         stage_txt = ocr_stage(png)
         if stage_txt and STAGE_PATTERN.search(stage_txt):

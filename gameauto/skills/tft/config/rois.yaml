@@ -52,31 +52,32 @@ buttons:
 combat:
   round_indicator: {left: 0.40, top: 0.00, right: 0.60, bottom: 0.06}  # 回合/阶段文字
 ocr:
-  shop0: {left: 0.1608, top: 0.3962, right: 0.27, bottom: 0.4538}
-  shop1: {left: 0.3192, top: 0.3999, right: 0.425, bottom: 0.4501}
-  shop2: {left: 0.4808, top: 0.3999, right: 0.5933, bottom: 0.452}
-  shop3: {left: 0.64, top: 0.4036, right: 0.755, bottom: 0.4501}
-  shop4: {left: 0.8, top: 0.4036, right: 0.915, bottom: 0.4501}
+  shop0: {left: 0.1842, top: 0.398, right: 0.2975, bottom: 0.4613}
+  shop1: {left: 0.3425, top: 0.3999, right: 0.4542, bottom: 0.4594}
+  shop2: {left: 0.4983, top: 0.3962, right: 0.6133, bottom: 0.4594}
+  shop3: {left: 0.6617, top: 0.3943, right: 0.7675, bottom: 0.465}
+  shop4: {left: 0.8233, top: 0.3962, right: 0.9283, bottom: 0.4594}
   stage: {left: 0.3175, top: 0.0037, right: 0.4417, bottom: 0.0614}
   timer: {left: 0.5575, top: 0.0037, right: 0.655, bottom: 0.0465}
-  xp_bar: {left: 0.0458, top: 0.7477, right: 0.0933, bottom: 0.7998}
-  gold: {left: 0.8775, top: 0.8258, right: 0.9508, bottom: 0.9337}
-  own_board: {left: 0.2817, top: 0.3553, right: 0.7717, bottom: 0.7235}
+  xp_bar: {left: 0.0683, top: 0.7514, right: 0.1108, bottom: 0.8017}
+  gold: {left: 0.9058, top: 0.8426, right: 0.9617, bottom: 0.9244}
+  own_board: {left: 0.2817, top: 0.2492, right: 0.7958, bottom: 0.7626}
   bench: {left: 0.18, top: 0.7589, right: 0.8025, bottom: 0.9709}
-  level: {left: 0.0933, top: 0.9207, right: 0.1158, bottom: 0.9746}
-  buy_xp_btn: {left: 0.0342, top: 0.8444, right: 0.0925, bottom: 0.9225}
-  refresh_btn: {left: 0.88, top: 0.5766, right: 0.95, bottom: 0.7254}
-  item1: {left: 0.0583, top: 0.3199, right: 0.1067, bottom: 0.4315}
-  item2: {left: 0.0575, top: 0.4297, right: 0.1067, bottom: 0.5375}
-  panel_close: {left: 0.1392, top: 0.6287, right: 0.1725, bottom: 0.6938}
+  level: {left: 0.1133, top: 0.9188, right: 0.1383, bottom: 0.9746}
+  buy_xp_btn: {left: 0.0525, top: 0.8351, right: 0.1175, bottom: 0.9281}
+  refresh_btn: {left: 0.9083, top: 0.5952, right: 0.9625, bottom: 0.7198}
+  item1: {left: 0.08, top: 0.3218, right: 0.1308, bottom: 0.4297}
+  item2: {left: 0.0792, top: 0.4297, right: 0.13, bottom: 0.5431}
+  panel_close: {left: 0.1275, top: 0.6975, right: 0.1533, bottom: 0.7477}
   carousel_pick: {left: 0.47, top: 0.3813, right: 0.5292, bottom: 0.4724}
   augment_pick0: {left: 0.1342, top: 0.1544, right: 0.3058, bottom: 0.7924}
   augment_pick1: {left: 0.3867, top: 0.1525, right: 0.5642, bottom: 0.8035}
   augment_pick2: {left: 0.6475, top: 0.1339, right: 0.8225, bottom: 0.7979}
-  item0: {left: 0.0575, top: 0.212, right: 0.1067, bottom: 0.3218}
-  drop_region: {left: 0.305, top: 0.1544, right: 0.7525, bottom: 0.8017}
+  item0: {left: 0.0817, top: 0.2139, right: 0.1317, bottom: 0.3199}
+  drop_region: {left: 0.2875, top: 0.1544, right: 0.7508, bottom: 0.7924}
   champion: {left: 0.7658, top: 0.1228, right: 0.9275, bottom: 0.1748}
-  equip_btn: {left: 0.0217, top: 0.3032, right: 0.0492, bottom: 0.3627}
+  equip_btn: {left: 0.0442, top: 0.3013, right: 0.0725, bottom: 0.3664}
+  home: {left: 0.375, top: 0.2381, right: 0.4042, bottom: 0.2864}
 templates:
   drop_white: {left: 0.3813, top: 0.656, right: 0.394, bottom: 0.6951}
   drop_blue: {left: 0.5256, top: 0.4906, right: 0.5456, bottom: 0.5447}
