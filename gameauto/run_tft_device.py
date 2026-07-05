@@ -682,11 +682,13 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
                 await _execute(a, inp)
             await asyncio.sleep(0.5)
 
-    # 5) 收起商店
-    print("  收起商店")
-    for a in builder.toggle_shop():
-        await _execute(a, inp)
-    await asyncio.sleep(0.3)
+    # 5) 收起商店 (只有确实开着才收, 不盲目点)
+    f_close = screenshot_bgr()
+    if f_close is not None and _shop_open(f_close, rois, fw, fh):
+        print("  收起商店")
+        for a in builder.toggle_shop():
+            await _execute(a, inp)
+        await asyncio.sleep(0.3)
 
     # 6) 上装备: 开装备栏 → 验证打开了(有金边) → 拖 → 关; 没打开则跳过
     equip_btn = _flat_roi(rois, "ocr", "equip_btn")
@@ -980,7 +982,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                         await _execute(a, inp)
                     await asyncio.sleep(2.5)
                     continue
-                elif "选秀" in txt or (stage and "-4" in stage):
+                elif "选秀" in txt or (stage and "2-4" in stage):
                     # 选秀: OCR 看到"选秀" 或 stage 含 -4 → 每 2s 点中心
                     # 退出条件: stage 变了(不依赖"选秀"文字, OCR 可能读不到)
                     print(f"[选秀] 检测到(stage={stage}), 每 2s 走中心")
