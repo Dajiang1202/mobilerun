@@ -475,7 +475,7 @@ def _shop_visible(frame, rois, fw, fh) -> bool:
 
 
 # 掉落物模板匹配阈值 (用户要求不要太高) + 走回老巢触发倒计时
-DROP_TM_THRESHOLD = 0.72
+DROP_TM_THRESHOLD = 0.85
 WALK_HOME_TIMER = 3
 _DROP_NAMES = ["drop_blue", "drop_white", "drop_gold"]
 
@@ -846,8 +846,8 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                     for a in builder.toggle_shop():
                         await _execute(a, inp)
                 shop_closed_this_combat = True
-            # 问号掉落物 (模板匹配, 低阈值; 每轮点一次)
-            if not drops_done_this_combat:
+            # 问号掉落物 (模板匹配; 每轮点一次) — 必须商店已收起才点
+            if not drops_done_this_combat and not _shop_open(frame, rois, fw, fh):
                 drops = await detect_drops_tm(frame, tm, rois, fw, fh)
                 if drops:
                     print(f"[战斗] 检出 {len(drops)} 个掉落物, 逐个点击")
