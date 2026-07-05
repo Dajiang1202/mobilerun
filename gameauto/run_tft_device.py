@@ -415,24 +415,32 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
         await _execute(Action(type="tap", x1=ex, y1=ey, description="关装备栏"), inp)
         await asyncio.sleep(0.4)
 
-    # 3) 遍历棋子 (棋盘+战备): 点开 → OCR champion 区读名 → 关面板
+    # 3) 遍历棋子 (棋盘+战备): 点开 → OCR champion 区读名 → 关面板 → 收集名字
     champion_roi = _flat_roi(rois, "ocr", "champion")
+    total = len(board) + len(bench)
+    print(f"  [遍历] 共 {total} 个棋子 (棋盘{len(board)} + 战备{len(bench)}), 逐个点击:")
+    collected = {"棋盘": [], "战备": []}
     for label, clicks in (("棋盘", board), ("战备", bench)):
         for i, pos in enumerate(clicks):
-            print(f"  点{label}{i} @ {pos}")
+            print(f"  [点击] {label}{i}/{len(clicks)} @ {pos}")
             for a in builder.click_champion(pos):
                 await _execute(a, inp)
             await asyncio.sleep(0.5)
+            name = ""
             if champion_roi:
                 L, T, R, B = (int(champion_roi[0]*fw), int(champion_roi[1]*fh),
                               int(champion_roi[2]*fw), int(champion_roi[3]*fh))
                 f3 = screenshot_bgr()
                 if f3 is not None:
-                    name, _ = _ocr_image(f3[T:B, L:R])
+                    name = _ocr_image(f3[T:B, L:R])[0].strip()
                     print(f"    识别: {name!r}")
+            collected[label].append(name or "?")
             for a in builder.close_panel():
                 await _execute(a, inp)
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.4)
+    print(f"  === 棋子汇总 ===")
+    print(f"  上场({len(collected['棋盘'])}): {collected['棋盘']}")
+    print(f"  场下({len(collected['战备'])}): {collected['战备']}")
 
     # 4) 卖: 战备>5 → 卖最后一个
     if len(bench) > 5:
