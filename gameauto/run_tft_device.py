@@ -626,9 +626,24 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
             await _execute(a, inp)
         await asyncio.sleep(0.6)
 
-    # 4) 购买 (重新 OCR 商店槽)
+    # 4) 购买: 金币≥30 先刷新; 优先买场上已有棋子, 否则随机
     f_shop = screenshot_bgr()
     if f_shop is not None:
+        # 读当前金币, ≥30 先刷新商店
+        groi = _flat_roi(rois, "ocr", "gold")
+        cur_gold = None
+        if groi:
+            L, T, R, B = int(groi[0]*fw), int(groi[1]*fh), int(groi[2]*fw), int(groi[3]*fh)
+            gm = re.search(r"\d+", _ocr_image(f_shop[T:B, L:R])[0])
+            cur_gold = int(gm.group()) if gm else None
+        if cur_gold is not None and cur_gold >= 30:
+            print(f"  金币{cur_gold}≥30, 先刷新商店")
+            for a in builder.refresh():
+                await _execute(a, inp)
+            await asyncio.sleep(0.5)
+            f_shop = screenshot_bgr()
+            if f_shop is None:
+                f_shop = screenshot_bgr()
         shop_texts = []
         for i in range(5):
             sroi = _flat_roi(rois, "ocr", f"shop{i}")
