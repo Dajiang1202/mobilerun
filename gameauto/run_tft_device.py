@@ -475,7 +475,7 @@ def _shop_visible(frame, rois, fw, fh) -> bool:
 
 
 # 掉落物模板匹配阈值 (用户要求不要太高) + 走回老巢触发倒计时
-DROP_TM_THRESHOLD = 0.85
+DROP_TM_THRESHOLD = 0.80
 WALK_HOME_TIMER = 3
 _DROP_NAMES = ["drop_blue", "drop_white", "drop_gold"]
 

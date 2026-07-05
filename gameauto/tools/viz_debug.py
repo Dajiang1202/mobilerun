@@ -46,7 +46,7 @@ _TEMPLATES_DIR = (Path(__file__).resolve().parent.parent
 _DROP_NAMES = ["drop_blue", "drop_white", "drop_gold"]
 
 
-def _detect_drops_sync(frame, tm, rois, fw, fh, threshold=0.85):
+def _detect_drops_sync(frame, tm, rois, fw, fh, threshold=0.80):
     """同步版 drops 检测 (viz 工具不是 async)。"""
     if tm is None:
         return []

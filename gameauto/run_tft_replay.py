@@ -271,7 +271,7 @@ def _get_tm():
     return _tm_cache
 
 
-def detect_drops_tm_sync(frame, rois=None, threshold=0.85):
+def detect_drops_tm_sync(frame, rois=None, threshold=0.80):
     """同步模板匹配问号掉落物, 返回 [(cx,cy),...] 像素位置。"""
     tm = _get_tm()
     if tm is None:
