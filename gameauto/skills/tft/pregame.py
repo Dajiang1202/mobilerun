@@ -45,8 +45,8 @@ ACCEPT_TIMEOUT = 15.0                     # 点接受后等多久判成败
 MATCH_TIMEOUT = 45.0                      # 点开始游戏后等多久「接受」, 超时回 LOBBY 重点
 OCR_THRESHOLD = 0.5                       # OCR 置信度阈值
 
-# 关键词: 用包含匹配抗 OCR 抖动 ("开始游戏" 可能识别成 "开始" / "并始游戏")
-START_KEYWORDS = ("开始",)
+# 关键词: 精确匹配 "开始游戏" (不能只匹配 "开始", 会误命中 "战斗开始")
+START_KEYWORDS = ("开始游戏", "并始游戏")  # "并" 形近字兜底
 ACCEPT_KEYWORDS = ("接受", "接愛")        # "受" 形近字兜底
 
 # stage ROI (与 rois.yaml ocr.stage 一致), 进游戏看这里出 X-Y
