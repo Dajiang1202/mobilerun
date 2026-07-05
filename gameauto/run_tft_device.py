@@ -51,7 +51,7 @@ from gameauto.run_tft_replay import (
 
 DEVICE_SERIAL = "4NZ0225613000015"   # hdc list targets 查看
 
-MODE = "act"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
+MODE = "auto"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/
@@ -652,26 +652,33 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
         await _execute(a, inp)
     await asyncio.sleep(0.3)
 
-    # 6) 上装备 (开装备栏→检测金边→拖→关)
+    # 6) 上装备: 开装备栏 → 验证打开了(有金边) → 拖 → 关; 没打开则跳过
     equip_btn = _flat_roi(rois, "ocr", "equip_btn")
     target = board[0] if board else (bench[0] if bench else None)
     if equip_btn and target:
         ex, ey = builder._roi_mid1000(equip_btn)
         print(f"  开装备栏 ({ex},{ey})")
         await _execute(Action(type="tap", x1=ex, y1=ey, description="开装备栏"), inp)
-        await asyncio.sleep(0.6)
+        await asyncio.sleep(0.8)
         f2 = screenshot_bgr()
+        equipped = False
         if f2 is not None:
             items, _, _ = detect_items(f2, rois)
-            for slot_name, present in items.items():
-                if present:
-                    slot_idx = int(slot_name.replace("item", ""))
-                    print(f"  装备槽{slot_idx}→棋子 @ {target}")
-                    for a in builder.equip_from_slot(slot_idx, target):
-                        await _execute(a, inp)
-                    await asyncio.sleep(0.4)
-        await _execute(Action(type="tap", x1=ex, y1=ey, description="关装备栏"), inp)
-        await asyncio.sleep(0.3)
+            has_any = any(items.values())
+            if not has_any:
+                print("  装备栏没打开(无金边检测到), 跳过装备")
+            else:
+                for slot_name, present in items.items():
+                    if present:
+                        slot_idx = int(slot_name.replace("item", ""))
+                        print(f"  装备槽{slot_idx}→棋子 @ {target}")
+                        for a in builder.equip_from_slot(slot_idx, target):
+                            await _execute(a, inp)
+                        await asyncio.sleep(0.4)
+                        equipped = True
+        if equipped:
+            await _execute(Action(type="tap", x1=ex, y1=ey, description="关装备栏"), inp)
+            await asyncio.sleep(0.3)
 
     # 7) 卖 (战备>5)
     if len(bench) > 5:
@@ -893,9 +900,10 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                         await _execute(a, inp)
                     await asyncio.sleep(2.5)
                     continue
-                elif "选秀" in txt:
-                    # 选秀: 每 2s 点一次中心, 直到离开选秀界面(最多 15 次)
-                    print("[选秀] 检测到, 每 2s 走中心")
+                elif "选秀" in txt or (stage and "-4" in stage):
+                    # 选秀: OCR 看到"选秀" 或 stage 含 -4 → 每 2s 点中心
+                    # 退出条件: stage 变了(不依赖"选秀"文字, OCR 可能读不到)
+                    print(f"[选秀] 检测到(stage={stage}), 每 2s 走中心")
                     for _ in range(15):
                         for a in builder.pick_carousel():
                             await _execute(a, inp)
@@ -903,8 +911,8 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                         f2 = screenshot_bgr()
                         if f2 is None:
                             break
-                        ok2, buf2 = cv2.imencode(".png", f2)
-                        if not ok2 or "选秀" not in ocr_full(buf2.tobytes()).combined_text:
+                        s2, _ = _ocr_stage_timer(f2, rois, fw, fh)
+                        if s2 and s2 != stage:
                             break
                     continue
 
