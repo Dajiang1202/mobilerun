@@ -640,8 +640,24 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
                 shop_texts.append("")
         cands = [i for i, t in enumerate(shop_texts) if t]
         if cands:
-            idx = random.choice(cands)
-            print(f"  买商店{idx} ({shop_texts[idx]!r})")
+            # 优先买场上已有的棋子(凑星级); 没有再随机
+            my_names = set(collected["棋盘"] + collected["战备"]) - {"?", ""}
+            idx = None
+            for i in cands:
+                if shop_texts[i] in my_names:
+                    idx = i
+                    break
+            if idx is None:
+                # 模糊: 商店名是场上棋子名的子串(或反过来), 抗 OCR 抖动
+                for i in cands:
+                    st = shop_texts[i]
+                    if any(st in n or n in st for n in my_names if len(n) >= 2):
+                        idx = i
+                        break
+            if idx is None:
+                idx = random.choice(cands)
+            tag = "已有" if shop_texts[idx] in my_names else "随机"
+            print(f"  买商店{idx} ({shop_texts[idx]!r}, {tag})")
             for a in builder.buy_shop_slot(idx):
                 await _execute(a, inp)
             await asyncio.sleep(0.5)
@@ -862,7 +878,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                         print(f"  点掉落物 @ {dp}")
                         for a in builder.click_drop(dp):
                             await _execute(a, inp)
-                        await asyncio.sleep(0.4)
+                        await asyncio.sleep(1.0)   # 慢一点, 等棋子走过去拾取
                     # 点完走回老巢
                     await _walk_home(builder, inp, last_board, rois, fw, fh)
                     drops_done_this_combat = True
