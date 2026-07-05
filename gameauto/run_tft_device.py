@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import re
 import sys
 import time
@@ -37,7 +38,7 @@ from gameauto.utils.coordinate import to_normalized
 
 # 复用回放工作台里写好的感知后端 (full_perceive = 血条 + OCR)
 from gameauto.run_tft_replay import (
-    full_perceive, rule_decide, _load_rois, _flat_roi, _ocr_image,
+    full_perceive, decide_perceive, rule_decide, _load_rois, _flat_roi, _ocr_image,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -296,7 +297,7 @@ def _ocr_stage_timer(frame, rois, w, h):
 
 
 def _detect_result(frame) -> bool:
-    """全图 OCR 找「第X名」→ 结算。"""
+    """全图 OCR 找「第X名」→ 结算。(保留备用, auto 主循环已合并到节流全图 OCR)"""
     ok, buf = cv2.imencode(".png", frame)
     if not ok:
         return False
@@ -343,7 +344,8 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
             lambda: grab_png("匹配中..."), frame_wh=(fw, fh))
 
     # 1) 游戏内循环
-    last_result_check = 0.0
+    last_full_check = 0.0
+    shop_closed_this_combat = False
     while True:
         frame = screenshot_bgr()
         if frame is None:
@@ -353,18 +355,44 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
         stage, timer = _ocr_stage_timer(frame, rois, fw, fh)
         phase = tracker.update(stage, timer)
 
-        # 结算检测 (节流: 每 5s 一次全图 OCR)
+        # 进战斗 → 点 gold 收起商店看战斗 (每轮战斗只收一次)
+        if phase == "战斗" and not shop_closed_this_combat:
+            print("[战斗] 点 gold 收起商店")
+            for a in builder.toggle_shop():   # toggle_shop 点 gold 位置
+                await _execute(a, inp)
+            shop_closed_this_combat = True
+        if phase != "战斗":
+            shop_closed_this_combat = False
+
+        # 节流全图 OCR (5s): 结算 / 海克斯 / 选秀 一次查完
         now = time.time()
-        if now - last_result_check > 5:
-            last_result_check = now
-            if _detect_result(frame):
-                phase = "结算"
+        if now - last_full_check > 5:
+            last_full_check = now
+            ok, buf = cv2.imencode(".png", frame)
+            if ok:
+                res = ocr_full(buf.tobytes())
+                txt = res.combined_text
+                if re.search(r"第.{0,3}名", txt):
+                    phase = "结算"
+                elif any(k in txt for k in ("强化", "符文", "海克斯")):
+                    idx = random.choice([0, 1, 2])
+                    print(f"[海克斯] 检测到, 随机选第 {idx} 个")
+                    for a in builder.pick_augment(idx):
+                        await _execute(a, inp)
+                    await asyncio.sleep(2.5)   # 等关面板
+                    continue
+                elif "选秀" in txt:
+                    print("[选秀] 检测到, 走中心")
+                    for a in builder.pick_carousel():
+                        await _execute(a, inp)
+                    await asyncio.sleep(2.5)
+                    continue
 
         print(f"[{phase}] stage={stage} timer={timer} ord={tracker.ordinal} "
               f"acted={tracker.acted_this_planning}")
 
         if phase == "备战" and not tracker.acted_this_planning:
-            st = full_perceive(frame)
+            st = decide_perceive(frame)   # full + 掉落物(?) + 商店开闭(刷新字)
             actions = rule_decide(st, builder)
             print(f"  备战产出 {len(actions)} 个动作, 执行前 6 个")
             for a in actions[:6]:
