@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -28,12 +30,15 @@ from gameauto.core.input.scrcpy import ScrcpyInput as Input
 from gameauto.core.orchestration.base import Action
 from gameauto.core.perception.cv.template_match import TemplateMatchTask
 from gameauto.skills.tft.actions import TftActions
-from gameauto.skills.tft.pregame import PreGameDriver, make_tap_fn
-from gameauto.tools.cv_text import put_text_zh
+from gameauto.skills.tft.phase import PhaseTracker
+from gameauto.skills.tft.pregame import PreGameDriver, make_tap_fn, ocr_full, START_KEYWORDS
+from gameauto.tools.cv_text import put_text_zh, overlay_text
 from gameauto.utils.coordinate import to_normalized
 
 # 复用回放工作台里写好的感知后端 (full_perceive = 血条 + OCR)
-from gameauto.run_tft_replay import full_perceive, _load_rois
+from gameauto.run_tft_replay import (
+    full_perceive, rule_decide, _load_rois, _flat_roi, _ocr_image,
+)
 
 # ═══════════════════════════════════════════════════════════════════════
 #  配置区
@@ -41,7 +46,7 @@ from gameauto.run_tft_replay import full_perceive, _load_rois
 
 DEVICE_SERIAL = "4NZ0225613000015"   # hdc list targets 查看
 
-MODE = "observe"   # "observe" = M1 只看 | "act" = M2 交互 | "match" = 预游戏自动匹配进游戏
+MODE = "observe"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/
@@ -265,6 +270,123 @@ def _parse_cmd(cmd: str, builder: TftActions, w: int, h: int):
     return None
 
 
+# ── M3: auto (自动打一局) ───────────────────────────────────────────────
+
+def _grab_png() -> bytes:
+    f = screenshot_bgr()
+    if f is None:
+        return b""
+    ok, buf = cv2.imencode(".png", f)
+    return buf.tobytes() if ok else b""
+
+
+def _ocr_stage_timer(frame, rois, w, h):
+    """轻量: 只 OCR stage + timer 两个小 ROI → (stage_str|None, timer_int|None)。
+
+    stage 用正则提取干净的 X-Y (去掉 OCR 噪声如 '2-1 可'), 防误判 stage 变化。
+    """
+    timer_int = None
+    sroi = _flat_roi(rois, "ocr", "stage")
+    if sroi:
+        L, T, R, B = int(sroi[0]*w), int(sroi[1]*h), int(sroi[2]*w), int(sroi[3]*h)
+        raw = _ocr_image(frame[T:B, L:R])[0]
+        m = re.search(r"\d+\s*[-\-–—]\s*\d+", raw)
+        stage_txt = m.group().replace(" ", "").replace("–", "-").replace("—", "-") if m else ""
+    else:
+        stage_txt = ""
+    troi = _flat_roi(rois, "ocr", "timer")
+    if troi:
+        L, T, R, B = int(troi[0]*w), int(troi[1]*h), int(troi[2]*w), int(troi[3]*h)
+        m = re.search(r"\d+", _ocr_image(frame[T:B, L:R])[0])
+        timer_int = int(m.group()) if m else None
+    return (stage_txt or None), timer_int
+
+
+def _detect_result(frame) -> bool:
+    """全图 OCR 找「第X名」→ 结算。"""
+    ok, buf = cv2.imencode(".png", frame)
+    if not ok:
+        return False
+    res = ocr_full(buf.tobytes())
+    return any(re.search(r"第.{0,3}名", h.text) for h in res.hits)
+
+
+async def auto(capture: Capture, inp: Input, tm) -> None:
+    """自动打一局: 大厅则先匹配 → 备战按规则动作 / 战斗等待 / 结算点继续退出。
+
+    目标: 完成一局(哪怕最后一名)。动作随机可, 状态机+操作能跑通即可。
+    """
+    w, h = capture.native_resolution
+    rois = _load_rois()
+    builder = TftActions(rois, w, h)
+    tracker = PhaseTracker()
+    print("=== auto: 自动对局 ===")
+
+    # 0) 大厅 → 先匹配进游戏
+    frame0 = screenshot_bgr()
+    if frame0 is not None:
+        png0 = _grab_png()
+        if png0 and ocr_full(png0).find(START_KEYWORDS):
+            print("[auto] 在大厅, 先跑匹配")
+            await PreGameDriver(make_tap_fn(inp), log=lambda m, *a: print(m)).run(
+                _grab_png, frame_wh=(w, h))
+
+    # 1) 游戏内循环
+    last_result_check = 0.0
+    if SHOW:
+        cv2.namedWindow("TFT auto", cv2.WINDOW_NORMAL)
+    while True:
+        frame = screenshot_bgr()
+        if frame is None:
+            await asyncio.sleep(0.5)
+            continue
+
+        stage, timer = _ocr_stage_timer(frame, rois, w, h)
+        phase = tracker.update(stage, timer)
+
+        # 结算检测 (节流: 每 5s 一次全图 OCR)
+        now = time.time()
+        if now - last_result_check > 5:
+            last_result_check = now
+            if _detect_result(frame):
+                phase = "结算"
+
+        print(f"[{phase}] stage={stage} timer={timer} ord={tracker.ordinal} "
+              f"acted={tracker.acted_this_planning}")
+
+        if phase == "备战" and not tracker.acted_this_planning:
+            st = full_perceive(frame)
+            actions = rule_decide(st, builder)
+            print(f"  备战产出 {len(actions)} 个动作, 执行前 6 个")
+            for a in actions[:6]:
+                try:
+                    print(f"    -> {a.type} {a.description}")
+                    await _execute(a, inp)
+                    await asyncio.sleep(0.6)   # 等动画
+                except Exception as e:
+                    print(f"    动作失败: {e}")
+            tracker.mark_acted()
+        elif phase == "结算":
+            cont = builder.tap_continue()
+            if cont:
+                await _execute(cont[0], inp)
+            print("[auto] 结算 → 点继续 → 结束本局")
+            break
+        else:
+            await asyncio.sleep(1.0)
+
+        if SHOW:
+            disp = frame.copy()
+            disp = overlay_text(disp, f"{phase}  stage={stage} t={timer}",
+                                (20, 20), color_bgr=(0, 255, 255), px=30)
+            cv2.imshow("TFT auto", disp)
+            if (cv2.waitKey(1) & 0xFF) == ord("q"):
+                break
+        await asyncio.sleep(0.3)
+    if SHOW:
+        cv2.destroyAllWindows()
+
+
 # ═══════════════════════════════════════════════════════════════════════
 
 async def main() -> None:
@@ -293,8 +415,10 @@ async def main() -> None:
             await act(capture, inp)
         elif MODE == "match":
             await match(capture, inp)
+        elif MODE == "auto":
+            await auto(capture, inp, tm)
         else:
-            print(f"未知 MODE={MODE}, 可选 observe / act / match")
+            print(f"未知 MODE={MODE}, 可选 observe / act / match / auto")
     except KeyboardInterrupt:
         print("\n中断")
     finally:
