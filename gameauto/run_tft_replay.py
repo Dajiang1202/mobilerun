@@ -249,6 +249,64 @@ def _first_int(text: str) -> int | None:
     return int(m.group()) if m else None
 
 
+# ── 模板匹配 (问号掉落物) ──────────────────────────────────────────
+# 模板在 scale=1 的截图上裁的; 跑游戏/replay 的帧是 scale=2 → 模板要÷2
+TEMPLATE_SCALE = 0.5   # 模板放缩因子 (1/游戏SCALE); 模板 scale=1 裁 + 帧 scale=2 → 0.5
+_tm_cache = None
+_DROP_NAMES = ["drop_blue", "drop_white", "drop_gold"]
+
+
+def _get_tm():
+    """懒加载模板 (带 scale_templates 放缩)。无模板返回 None。"""
+    global _tm_cache
+    if _tm_cache is not None:
+        return _tm_cache
+    tpl_dir = Path(__file__).resolve().parent / "skills" / "tft" / "assets" / "templates"
+    if not tpl_dir.is_dir():
+        return None
+    from gameauto.core.perception.cv.template_match import TemplateMatchTask
+    _tm_cache = TemplateMatchTask(str(tpl_dir))
+    if TEMPLATE_SCALE != 1.0:
+        _tm_cache.scale_templates(TEMPLATE_SCALE)
+    return _tm_cache
+
+
+def detect_drops_tm_sync(frame, rois=None, threshold=0.60):
+    """同步模板匹配问号掉落物, 返回 [(cx,cy),...] 像素位置。"""
+    tm = _get_tm()
+    if tm is None:
+        return []
+    if rois is None:
+        rois = _load_rois()
+    h, w = frame.shape[:2]
+    region = _flat_roi(rois, "ocr", "drop_region") or (0, 0, 1, 1)
+    L, T = int(region[0]*w), int(region[1]*h)
+    R, B = int(region[2]*w), int(region[3]*h)
+    crop = frame[T:B, L:R]
+    if crop.size == 0:
+        return []
+    names = [n for n in _DROP_NAMES if n in tm.template_names]
+    if not names:
+        return []
+    drops = []
+    for name in names:
+        tpl = tm._templates.get(name)
+        if tpl is None:
+            continue
+        for sc in (0.9, 1.0, 1.1):
+            sw, sh = max(1, int(tpl.shape[1]*sc)), max(1, int(tpl.shape[0]*sc))
+            if sw > crop.shape[1] or sh > crop.shape[0]:
+                continue
+            scaled = cv2.resize(tpl, (sw, sh))
+            res = cv2.matchTemplate(crop, scaled, cv2.TM_CCOEFF_NORMED)
+            ys, xs = np.where(res >= threshold)
+            for x, y in zip(xs, ys):
+                cx, cy = int(x + sw//2 + L), int(y + sh//2 + T)
+                if all(abs(cx-dx)+abs(cy-dy) > 30 for dx, dy in drops):
+                    drops.append((cx, cy))
+    return drops
+
+
 # ── 棋子血条检测 (champions 后端调参区) ──────────────────────────────
 # 思路: 我方棋子头顶有绿色血条 (长宽比≥6), 检测到血条 = 定位到棋子。
 # 血条下方就是棋子, 点击后 champion 区域弹出棋子名 (真机流程)。
@@ -579,10 +637,8 @@ def decide_perceive(frame_bgr: np.ndarray) -> dict:
         return st
     h, w = frame_bgr.shape[:2]
     rois = _load_rois()
-    # 掉落物 (全图 OCR 找 ?)
-    txt = text_perceive(frame_bgr)
-    st["drops"] = txt.get("drops", [])
-    st["overlays"] = st.get("overlays", []) + txt.get("overlays", [])
+    # 掉落物: 模板匹配 (替 OCR ?, 更准更快)
+    st["drops"] = detect_drops_tm_sync(frame_bgr, rois)
     # 商店开闭: refresh_btn 区域 OCR 含「刷新」
     refresh_roi = _flat_roi(rois, "ocr", "refresh_btn")
     rtxt = ""

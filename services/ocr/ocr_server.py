@@ -97,6 +97,9 @@ class OCRResponse(BaseModel):
     confidences: list[float]
     combined_text: str
     latency_ms: int
+    # 每条文本的 bounding box: [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] 像素坐标 (4 角点)。
+    # 来自 RapidOCR item[0]。老消费方忽略此字段, 向后兼容。
+    boxes: list[list[list[int]]] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
@@ -138,15 +141,18 @@ async def ocr(req: OCRRequest):
 
         texts: list[str] = []
         confidences: list[float] = []
+        boxes: list[list[list[int]]] = []
 
         if result:
             for item in result:
-                # RapidOCR: [box, text, confidence]
+                # RapidOCR: [box, text, confidence]; box = 4 个角点的像素坐标
+                box = item[0]
                 text = item[1]
                 conf = float(item[2])
                 if conf >= req.threshold and text.strip():
                     texts.append(text.strip())
                     confidences.append(conf)
+                    boxes.append([[int(p[0]), int(p[1])] for p in box])
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
         return OCRResponse(
@@ -154,6 +160,7 @@ async def ocr(req: OCRRequest):
             confidences=confidences,
             combined_text=" ".join(texts),
             latency_ms=latency_ms,
+            boxes=boxes,
         )
 
     except Exception:
@@ -191,14 +198,17 @@ async def ocr_binary(
 
         texts: list[str] = []
         confidences: list[float] = []
+        boxes: list[list[list[int]]] = []
 
         if result:
             for item in result:
+                box = item[0]
                 text = item[1]
                 conf = float(item[2])
                 if conf >= threshold and text.strip():
                     texts.append(text.strip())
                     confidences.append(conf)
+                    boxes.append([[int(p[0]), int(p[1])] for p in box])
 
         ms = int((time.perf_counter() - t0) * 1000)
         return OCRResponse(
@@ -206,6 +216,7 @@ async def ocr_binary(
             confidences=confidences,
             combined_text=" ".join(texts),
             latency_ms=ms,
+            boxes=boxes,
         )
 
     except Exception:

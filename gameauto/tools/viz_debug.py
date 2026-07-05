@@ -91,6 +91,7 @@ def main():
     if _TEMPLATES_DIR.is_dir():
         from gameauto.core.perception.cv.template_match import TemplateMatchTask
         tm = TemplateMatchTask(str(_TEMPLATES_DIR))
+        tm.scale_templates(0.5)   # 模板 scale=1 裁的, debug 图是 scale=2 → ÷2
     has_drops = [n for n in _DROP_NAMES if tm and n in tm.template_names]
 
     try:

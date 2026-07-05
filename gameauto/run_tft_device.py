@@ -219,8 +219,12 @@ async def act(capture: Capture, inp: Input) -> None:
     f0 = screenshot_bgr()
     fh, fw = f0.shape[:2] if f0 is not None else (h // SCALE, w // SCALE)
     builder = TftActions(rois, fw, fh)
-    # 模板 (drops 检测用)
-    tm = TemplateMatchTask(str(_TEMPLATES_DIR)) if _TEMPLATES_DIR.is_dir() else None
+    # 模板 (drops 检测用) — 模板在 scale=1 裁的, 游戏跑 scale=2 要÷SCALE
+    tm = None
+    if _TEMPLATES_DIR.is_dir():
+        tm = TemplateMatchTask(str(_TEMPLATES_DIR))
+        if SCALE > 1:
+            tm.scale_templates(1.0 / SCALE)
     print(f"=== M2 动作调试: 帧 {fw}x{fh} | help 看列表, q 退出, 预览窗按 s 存截图 ===")
 
     # 预览线程 (daemon): 实时显示画面 + 's' 存截图
@@ -909,7 +913,9 @@ async def main() -> None:
     tm = None
     if _TEMPLATES_DIR.is_dir():
         tm = TemplateMatchTask(str(_TEMPLATES_DIR))
-        print(f"状态模板: {tm.template_names or '(空, 阶段判为未知)'}")
+        if SCALE > 1:
+            tm.scale_templates(1.0 / SCALE)   # 模板 scale=1 裁的, 游戏 scale=2 要÷2
+        print(f"状态模板: {tm.template_names or '(空, 阶段判为未知)'} (scaled x{1.0/SCALE:.2f})")
 
     try:
         if MODE == "observe":

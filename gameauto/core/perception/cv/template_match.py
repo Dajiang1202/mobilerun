@@ -74,6 +74,20 @@ class TemplateMatchTask(BaseCVTask):
         """Add a single template programmatically."""
         self._templates[name] = image
 
+    def scale_templates(self, factor: float) -> None:
+        """Resize all loaded templates by factor.
+
+        用途: 模板在 scale=1 的图上裁的, 游戏跑 scale=2 → 模板÷2 才匹配。
+        在 load_templates 之后调: tm.scale_templates(1.0 / game_scale)
+        """
+        for name in list(self._templates.keys()):
+            tpl = self._templates[name]
+            new_w = max(1, int(tpl.shape[1] * factor))
+            new_h = max(1, int(tpl.shape[0] * factor))
+            self._templates[name] = cv2.resize(tpl, (new_w, new_h),
+                                               interpolation=cv2.INTER_AREA)
+        logger.info("Templates scaled by %.2f (%d templates)", factor, len(self._templates))
+
     @property
     def template_names(self) -> list[str]:
         return list(self._templates.keys())

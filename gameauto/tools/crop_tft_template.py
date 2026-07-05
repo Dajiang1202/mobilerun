@@ -40,7 +40,7 @@ from gameauto.tools.roi_annotator import (
 #  配置区
 # ═══════════════════════════════════════════════════════════════════════
 
-SCREENS_DIR = r"D:\screenshots"
+SCREENS_DIR = r"D:\gameauto\mobilerun\gameauto\core\capture\scrcpy\captured"
 OUT_DIR = (Path(__file__).resolve().parent.parent
            / "skills" / "tft" / "assets" / "templates")
 
