@@ -432,8 +432,15 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
                               int(champion_roi[2]*fw), int(champion_roi[3]*fh))
                 f3 = screenshot_bgr()
                 if f3 is not None:
-                    name = _ocr_image(f3[T:B, L:R])[0].strip()
+                    crop = f3[T:B, L:R].copy()
+                    name = _ocr_image(crop)[0].strip()
                     print(f"    识别: {name!r}")
+                    # 保存识别截图 (以 位置_名字 命名, 便于核对 OCR)
+                    save_dir = Path("logs") / "champions"
+                    save_dir.mkdir(parents=True, exist_ok=True)
+                    safe = name.replace("/", "_").replace("\\", "_") or "unknown"
+                    cv2.imencode(".png", crop)[1].tofile(
+                        str(save_dir / f"{label}{i}_{safe}.png"))
             collected[label].append(name or "?")
             for a in builder.close_panel():
                 await _execute(a, inp)

@@ -257,7 +257,7 @@ HP_GREEN_RGB = (131, 222, 117)   # 我方血条绿 (RGB)
 HP_GREEN_TOL = 30                # RGB 各通道容差; 后排棋子血条更暗(G低到177), 需±30才凑够掩膜
 HP_BAR_MIN_RATIO = 6.0           # 血条长宽比下限 (w/h); 实测真图约23
 HP_MIN_WIDTH = 12                # 血条最小像素宽 (过滤小噪点)
-HP_CLICK_BELOW = 3.0             # 点击点距血条底部 = 血条高度 × 此值
+HP_CLICK_BELOW = 5.0             # 点击点距血条底部 = 血条高度 × 此值 (真机实测稍低更易点中棋子)
 HP_OCR_BELOW = False             # 血条下方OCR(血条本身无文字, 默认关; 名字需真机点击弹)
 HP_OCR_BELOW_W = 1.2             # OCR 区域宽 = 血条宽 × 此值
 HP_OCR_BELOW_H = 1.1             # OCR 区域高 = 血条宽 × 此值 (棋子名/花费区)
