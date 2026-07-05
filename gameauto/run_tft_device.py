@@ -46,7 +46,7 @@ from gameauto.run_tft_replay import (
 
 DEVICE_SERIAL = "4NZ0225613000015"   # hdc list targets 查看
 
-MODE = "observe"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
+MODE = "auto"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/
@@ -272,13 +272,6 @@ def _parse_cmd(cmd: str, builder: TftActions, w: int, h: int):
 
 # ── M3: auto (自动打一局) ───────────────────────────────────────────────
 
-def _grab_png() -> bytes:
-    f = screenshot_bgr()
-    if f is None:
-        return b""
-    ok, buf = cv2.imencode(".png", f)
-    return buf.tobytes() if ok else b""
-
 
 def _ocr_stage_timer(frame, rois, w, h):
     """轻量: 只 OCR stage + timer 两个小 ROI → (stage_str|None, timer_int|None)。
@@ -316,32 +309,48 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
 
     目标: 完成一局(哪怕最后一名)。动作随机可, 状态机+操作能跑通即可。
     """
-    w, h = capture.native_resolution
+    # ⚠ 坐标转换用「帧输出分辨率」(=截图实际像素, native/scale), 不是 native。
+    # 因为 OCR/感知的 box 都是帧像素; 输入侧 ScrcpyInput 自己把 [0-1000]→native。
+    sample = screenshot_bgr()
+    fh, fw = (sample.shape[:2] if sample is not None else
+              (capture.native_resolution[1] // SCALE, capture.native_resolution[0] // SCALE))
     rois = _load_rois()
-    builder = TftActions(rois, w, h)
+    builder = TftActions(rois, fw, fh)   # 用帧输出尺寸, pixel→[0-1000] 才对
     tracker = PhaseTracker()
-    print("=== auto: 自动对局 ===")
+    print(f"=== auto: 自动对局 | 帧 {fw}x{fh} (native {capture.native_resolution[0]}x{capture.native_resolution[1]}) ===")
 
-    # 0) 大厅 → 先匹配进游戏
-    frame0 = screenshot_bgr()
-    if frame0 is not None:
-        png0 = _grab_png()
-        if png0 and ocr_full(png0).find(START_KEYWORDS):
-            print("[auto] 在大厅, 先跑匹配")
-            await PreGameDriver(make_tap_fn(inp), log=lambda m, *a: print(m)).run(
-                _grab_png, frame_wh=(w, h))
+    if SHOW:
+        cv2.namedWindow("TFT auto", cv2.WINDOW_NORMAL)
+
+    def grab_png(label: str = "") -> bytes:
+        """截图 + 可选显示, 返回 PNG bytes。pregame 和主循环共用, 全程有画面。"""
+        f = screenshot_bgr()
+        if f is None:
+            return b""
+        if SHOW:
+            disp = overlay_text(f.copy(), label or "auto", (20, 20),
+                                color_bgr=(0, 255, 255), px=30)
+            cv2.imshow("TFT auto", disp)
+            cv2.waitKey(1)
+        ok, buf = cv2.imencode(".png", f)
+        return buf.tobytes() if ok else b""
+
+    # 0) 大厅 → 先匹配进游戏 (frame_wh 用帧输出尺寸)
+    png0 = grab_png("检测大厅...")
+    if png0 and ocr_full(png0).find(START_KEYWORDS):
+        print("[auto] 在大厅, 先跑匹配")
+        await PreGameDriver(make_tap_fn(inp), log=lambda m, *a: print(m)).run(
+            lambda: grab_png("匹配中..."), frame_wh=(fw, fh))
 
     # 1) 游戏内循环
     last_result_check = 0.0
-    if SHOW:
-        cv2.namedWindow("TFT auto", cv2.WINDOW_NORMAL)
     while True:
         frame = screenshot_bgr()
         if frame is None:
             await asyncio.sleep(0.5)
             continue
 
-        stage, timer = _ocr_stage_timer(frame, rois, w, h)
+        stage, timer = _ocr_stage_timer(frame, rois, fw, fh)
         phase = tracker.update(stage, timer)
 
         # 结算检测 (节流: 每 5s 一次全图 OCR)
