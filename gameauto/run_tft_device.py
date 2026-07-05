@@ -317,6 +317,18 @@ def _shop_open(frame, rois, fw, fh) -> bool:
     return "刷新" in _ocr_image(frame[T:B, L:R])[0]
 
 
+def _shop_visible(frame, rois, fw, fh) -> bool:
+    """商店可见 = refresh 区有「刷新」或 buy_xp 区有「经验」(死亡/观战时看不到这俩)。"""
+    for key, kw in [("refresh_btn", "刷新"), ("buy_xp_btn", "经验")]:
+        roi = _flat_roi(rois, "ocr", key)
+        if not roi:
+            continue
+        L, T, R, B = int(roi[0]*fw), int(roi[1]*fh), int(roi[2]*fw), int(roi[3]*fh)
+        if kw in _ocr_image(frame[T:B, L:R])[0]:
+            return True
+    return False
+
+
 async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh) -> None:
     """备战阶段的完整动作序列 (真机, 带中途感知):
 
@@ -419,9 +431,11 @@ async def _do_spectate(inp: Input, fw: int, fh: int) -> None:
         await inp.tap(x, y, 150)
         await asyncio.sleep(2)
 
-    # 2) 持续观战: 每 10s 点右侧一个存活玩家(纯数字血量 >0)
+    # 2) 持续观战: 每 10s 点右侧一个存活玩家(纯数字血量 >0);
+    #    右侧长期无数字 → 全屏 OCR 找「现在退出」→ 点它结束本局
     print("[观战] 持续观战, 每 10s 点一个右侧存活玩家 (Ctrl+C 退出)")
     last_click = 0.0
+    last_number_at = time.time()
     while True:
         f = screenshot_bgr()
         if f is None:
@@ -436,23 +450,31 @@ async def _do_spectate(inp: Input, fw: int, fh: int) -> None:
             print("[观战] 回到大厅, 结束观战")
             return
         now = time.time()
-        if now - last_click >= 10:
-            last_click = now
-            cands = []
-            for h in res.hits:
-                t = h.text.strip()
-                if t.isdigit():
-                    n = int(t)
-                    if 0 < n <= 100:           # 血量范围
-                        cx = sum(p[0] for p in h.box) // 4
-                        if cx > fw * 0.6:       # 屏幕右侧的玩家列表
-                            cands.append((hit_to_1000(h, fw, fh), n))
-            if cands:
+        cands = []
+        for h in res.hits:
+            t = h.text.strip()
+            if t.isdigit():
+                n = int(t)
+                if 0 < n <= 100:           # 血量范围
+                    cx = sum(p[0] for p in h.box) // 4
+                    if cx > fw * 0.6:       # 屏幕右侧的玩家列表
+                        cands.append((hit_to_1000(h, fw, fh), n))
+        if cands:
+            last_number_at = now
+            if now - last_click >= 10:
+                last_click = now
                 (x, y), n = random.choice(cands)
                 print(f"[观战] 点存活玩家(血{n}) ({x},{y})")
                 await inp.tap(x, y, 150)
-            else:
-                print("[观战] (本帧右侧没识别到存活血量)")
+        else:
+            # 右侧长期(>25s)无血量数字 → 比赛可能结束, 找「现在退出」
+            if now - last_number_at > 25:
+                hit = res.find(("现在退出", "现在退", "退出"))
+                if hit:
+                    x, y = hit_to_1000(hit, fw, fh)
+                    print(f"[观战] 长期无血量, 看到「现在退出」→ 点击 ({x},{y}) 结束本局")
+                    await inp.tap(x, y, 150)
+                    return
         await asyncio.sleep(2)
 
 
@@ -497,6 +519,9 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
     # 1) 游戏内循环
     last_full_check = 0.0
     shop_closed_this_combat = False
+    prev_stage: str | None = None
+    shop_seen_this_stage = False
+    stages_no_shop = 0          # 连续未见商店的 stage 数; ≥2 → 判定已死亡
     while True:
         frame = screenshot_bgr()
         if frame is None:
@@ -505,6 +530,23 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
 
         stage, timer = _ocr_stage_timer(frame, rois, fw, fh)
         phase = tracker.update(stage, timer)
+
+        # 死亡检测: 备战时探商店按钮(刷新/经验); stage 变化时累计, 连续 2 个 stage
+        # 都没见过商店 → 我方已死(观战中) → 进观战模式
+        if phase == "备战" and _shop_visible(frame, rois, fw, fh):
+            shop_seen_this_stage = True
+        if stage and stage != prev_stage:
+            if prev_stage is not None and not shop_seen_this_stage:
+                stages_no_shop += 1
+            elif shop_seen_this_stage:
+                stages_no_shop = 0
+            shop_seen_this_stage = False
+            prev_stage = stage
+            if stages_no_shop >= 2:
+                print(f"[auto] 连续 {stages_no_shop} 个 stage({stage})未见商店 → 判定已死亡, 进观战")
+                await _do_spectate(inp, fw, fh)
+                print("[auto] 观战结束, 退出本局")
+                break
 
         # 进战斗 → 商店若开着(看见刷新) 才点 gold 收起 (每轮战斗只收一次)
         if phase == "战斗" and not shop_closed_this_combat:
