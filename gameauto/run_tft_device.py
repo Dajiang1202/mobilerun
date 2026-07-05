@@ -329,6 +329,50 @@ def _shop_visible(frame, rois, fw, fh) -> bool:
     return False
 
 
+# 掉落物模板匹配阈值 (用户要求不要太高) + 走回老巢触发倒计时
+DROP_TM_THRESHOLD = 0.60
+WALK_HOME_TIMER = 3
+_DROP_NAMES = ["drop_blue", "drop_white", "drop_gold"]
+
+
+async def detect_drops_tm(frame, tm, rois, fw, fh, threshold: float = DROP_TM_THRESHOLD):
+    """模板匹配 3 种问号掉落物(蓝/白/金), 在 drop_region 内搜, 返回 [(cx,cy),...] 像素。"""
+    if tm is None:
+        return []
+    names = [n for n in _DROP_NAMES if n in tm.template_names]
+    if not names:
+        return []
+    region = _flat_roi(rois, "ocr", "drop_region") or (0.0, 0.0, 1.0, 1.0)
+    L, T, R, B = int(region[0]*fw), int(region[1]*fh), int(region[2]*fw), int(region[3]*fh)
+    crop = frame[T:B, L:R]
+    if crop.size == 0:
+        return []
+    ok, buf = cv2.imencode(".png", crop)
+    if not ok:
+        return []
+    res = await tm.run(buf.tobytes(), roi=None,
+                       config={"threshold": threshold, "filter_names": names})
+    drops = []
+    for m in res.get("matches", []):
+        cx = m["x"] + m["w"] // 2 + L
+        cy = m["y"] + m["h"] // 2 + T
+        drops.append((cx, cy))
+    return drops
+
+
+async def _walk_home(builder: TftActions, inp: Input, board_clicks, rois, fw, fh) -> None:
+    """把一个场上棋子拖回老巢(home ROI)。board_clicks 为空则跳过。"""
+    home = _flat_roi(rois, "ocr", "home")
+    if not home or not board_clicks:
+        return
+    hx = int((home[0] + home[2]) / 2 * fw)
+    hy = int((home[1] + home[3]) / 2 * fh)
+    champ = board_clicks[0]
+    print(f"  走回老巢: {champ} → ({hx},{hy})")
+    for a in builder.move_champion(champ, (hx, hy)):
+        await _execute(a, inp)
+
+
 async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh) -> None:
     """备战阶段的完整动作序列 (真机, 带中途感知):
 
@@ -339,12 +383,7 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
     bench = st.get("bench_clicks", []) or []
     ocr = st.get("ocr", {})
 
-    # 0) 问号掉落物 (drops 来自 decide_perceive 全图 OCR; 识别不稳, 有就点)
-    for dp in st.get("drops", []) or []:
-        print(f"  点掉落物 @ {dp}")
-        for a in builder.click_drop(dp):
-            await _execute(a, inp)
-        await asyncio.sleep(0.4)
+    # 注: 问号掉落物已移到战斗阶段(模板匹配), 备战不处理
 
     # 1) 商店购买 (店开着才买; 放遍历前, 避免遍历关了商店买不了)
     if st.get("shop_open"):
@@ -519,6 +558,9 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
     # 1) 游戏内循环
     last_full_check = 0.0
     shop_closed_this_combat = False
+    drops_done_this_combat = False
+    walked_home_this_combat = False
+    last_board: list = []          # 最近一次备战检出的场上棋子点击点, 战斗走回老巢用
     prev_stage: str | None = None
     shop_seen_this_stage = False
     stages_no_shop = 0          # 连续未见商店的 stage 数; ≥2 → 判定已死亡
@@ -548,15 +590,38 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                 print("[auto] 观战结束, 退出本局")
                 break
 
-        # 进战斗 → 商店若开着(看见刷新) 才点 gold 收起 (每轮战斗只收一次)
-        if phase == "战斗" and not shop_closed_this_combat:
-            if _shop_open(frame, rois, fw, fh):
-                print("[战斗] 看见刷新, 点 gold 收起商店")
-                for a in builder.toggle_shop():
-                    await _execute(a, inp)
-            shop_closed_this_combat = True
-        if phase != "战斗":
+        # ── 战斗阶段: 收商店 + 点击问号掉落物 + 走回老巢 ──
+        if phase == "战斗":
+            # 收商店 (每轮一次)
+            if not shop_closed_this_combat:
+                if _shop_open(frame, rois, fw, fh):
+                    print("[战斗] 看见刷新, 点 gold 收起商店")
+                    for a in builder.toggle_shop():
+                        await _execute(a, inp)
+                shop_closed_this_combat = True
+            # 问号掉落物 (模板匹配, 低阈值; 每轮点一次)
+            if not drops_done_this_combat:
+                drops = await detect_drops_tm(frame, tm, rois, fw, fh)
+                if drops:
+                    print(f"[战斗] 检出 {len(drops)} 个掉落物, 逐个点击")
+                    for dp in drops:
+                        print(f"  点掉落物 @ {dp}")
+                        for a in builder.click_drop(dp):
+                            await _execute(a, inp)
+                        await asyncio.sleep(0.4)
+                    # 点完走回老巢
+                    await _walk_home(builder, inp, last_board, rois, fw, fh)
+                    drops_done_this_combat = True
+            # 倒数 ≤3s: 走回老巢 (每轮一次)
+            if (timer is not None and timer <= WALK_HOME_TIMER
+                    and not walked_home_this_combat):
+                await _walk_home(builder, inp, last_board, rois, fw, fh)
+                walked_home_this_combat = True
+        else:
+            # 离开战斗 → 重置 per-combat 标志
             shop_closed_this_combat = False
+            drops_done_this_combat = False
+            walked_home_this_combat = False
 
         # 节流全图 OCR (5s): 结算 / 海克斯 / 选秀 一次查完
         now = time.time()
@@ -601,7 +666,8 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
 
         if phase == "备战" and not tracker.acted_this_planning:
             st = decide_perceive(frame)   # full + 掉落物(?) + 商店开闭
-            board_n = len(st.get("board_clicks", []) or [])
+            last_board = st.get("board_clicks", []) or []   # 战斗走回老巢用
+            board_n = len(last_board)
             bench_n = len(st.get("bench_clicks", []) or [])
             print(f"  备战: 棋盘{board_n} 战备{bench_n} 店开={st.get('shop_open')} "
                   f"掉落{len(st.get('drops', []) or [])} 装备{st.get('items')}")
