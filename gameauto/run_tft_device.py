@@ -51,7 +51,7 @@ from gameauto.run_tft_replay import (
 
 DEVICE_SERIAL = "4NZ0225613000015"   # hdc list targets 查看
 
-MODE = "auto"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
+MODE = "act"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/
@@ -199,6 +199,7 @@ _HELP = """\
   refresh / buy_xp / buy <0-4> / shop
   click <x> <y> / sell <x> <y> / close
   equip <slot> <x> <y>      从装备槽拖到棋子
+  equip_xy <fx fy tx ty>    拖装备(任意位置)到棋子(任意位置)
   drop <x> <y> / tap <x y> / swipe <x1 y1 x2 y2> [ms]
   carousel / augment [0-2] / continue
   ── 子流程调试 ──
@@ -405,6 +406,12 @@ def _parse_cmd(cmd: str, builder: TftActions, w: int, h: int):
             return builder.toggle_shop()
         if c == "drop":
             return builder.click_drop((px(1), px(2)))
+        if c == "equip_xy":
+            # 拖装备(任意位置)到棋子(任意位置): equip_xy <fx> <fy> <tx> <ty>
+            fx, fy = to_normalized(px(1), px(2), w, h)
+            tx, ty = to_normalized(px(3), px(4), w, h)
+            return [Action(type="drag", x1=fx, y1=fy, x2=tx, y2=ty, duration_ms=400,
+                           description=f"拖装备({px(1)},{px(2)})→棋子({px(3)},{px(4)})")]
         if c == "tap":
             nx, ny = to_normalized(px(1), px(2), w, h)
             return [Action(type="tap", x1=nx, y1=ny, description="裸点击")]
@@ -811,9 +818,26 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
     fh, fw = (sample.shape[:2] if sample is not None else
               (capture.native_resolution[1] // SCALE, capture.native_resolution[0] // SCALE))
     rois = _load_rois()
-    builder = TftActions(rois, fw, fh)   # 用帧输出尺寸, pixel→[0-1000] 才对
+    builder = TftActions(rois, fw, fh)
     tracker = PhaseTracker()
+
+    # 会话日志: stdout 同时写到文件
+    log_dir = Path(SAVE_DIR) / "auto_sessions"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    from datetime import datetime
+    session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = log_dir / f"{session_name}.log"
+    _log_file = open(log_path, "w", encoding="utf-8")
+    class _Tee:
+        def __init__(self, *streams): self.s = streams
+        def write(self, data):
+            for s in self.s: s.write(data)
+        def flush(self):
+            for s in self.s: s.flush()
+    sys.stdout = _Tee(sys.__stdout__, _log_file)
+
     print(f"=== auto: 自动对局 | 帧 {fw}x{fh} (native {capture.native_resolution[0]}x{capture.native_resolution[1]}) ===")
+    print(f"=== 日志: {log_path} ===")
 
     if SHOW:
         cv2.namedWindow("TFT auto", cv2.WINDOW_NORMAL)
@@ -1039,6 +1063,10 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
         await asyncio.sleep(0.3)
     if SHOW:
         cv2.destroyAllWindows()
+    # 关闭日志
+    _log_file.close()
+    sys.stdout = sys.__stdout__
+    print(f"日志已保存: {log_path}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
