@@ -34,7 +34,10 @@ from gameauto.tools.cv_text import overlay_multi
 # ═══════════════════════════════════════════════════════════════════════
 
 # 痛点截图目录 (把要分析的图放这里)
-SRC_DIR = r"D:\gameauto\mobilerun\logs\screenshots"
+SRC_DIR = r"D:\gameauto\mobilerun\gameauto\core\capture\scrcpy\captured"
+
+# 入图缩放: 截图如果是原图(scale=1), 缩成 scale=2 跟游戏帧一致
+INPUT_SCALE = 2   # 1=不缩 | 2=缩一半(匹配游戏scale=2)
 
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -106,6 +109,10 @@ def main():
         if img is None:
             print(f"{sp.name}: 读取失败")
             continue
+        # 入图缩放 (原图 scale=1 → scale=2, 跟游戏帧一致)
+        if INPUT_SCALE > 1:
+            img = cv2.resize(img, (img.shape[1] // INPUT_SCALE, img.shape[0] // INPUT_SCALE),
+                             interpolation=cv2.INTER_AREA)
         fh, fw = img.shape[:2]
         disp = img.copy()
         builder = TftActions(rois, fw, fh)
