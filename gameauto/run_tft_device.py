@@ -827,6 +827,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
     last_full_check = 0.0
     shop_closed_this_combat = False
     drops_done_this_combat = False
+    equip_done_this_combat = False
     walked_home_this_combat = False
     last_board: list = []          # 最近一次备战检出的场上棋子点击点, 战斗走回老巢用
     viz_names: dict = {}           # {点击位置: 棋子名}, 预览窗画名字
@@ -882,6 +883,31 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                     # 点完走回老巢
                     await _walk_home(builder, inp, last_board, rois, fw, fh)
                     drops_done_this_combat = True
+            # 战斗空闲: 上装备 (开栏→检测金边→拖→关; 每轮一次)
+            if not equip_done_this_combat and last_board:
+                equip_btn = _flat_roi(rois, "ocr", "equip_btn")
+                if equip_btn:
+                    ex, ey = builder._roi_mid1000(equip_btn)
+                    print(f"  [战斗] 开装备栏 ({ex},{ey})")
+                    await _execute(Action(type="tap", x1=ex, y1=ey, description="开装备栏"), inp)
+                    await asyncio.sleep(0.8)
+                    f_eq = screenshot_bgr()
+                    if f_eq is not None:
+                        items, _, _ = detect_items(f_eq, rois)
+                        if not any(items.values()):
+                            print("  [战斗] 装备栏没打开(无金边), 跳过")
+                        else:
+                            for slot_name, present in items.items():
+                                if present:
+                                    slot_idx = int(slot_name.replace("item", ""))
+                                    tgt = last_board[0]
+                                    print(f"  [战斗] 装备槽{slot_idx}→棋子 @ {tgt}")
+                                    for a in builder.equip_from_slot(slot_idx, tgt):
+                                        await _execute(a, inp)
+                                    await asyncio.sleep(0.4)
+                            await _execute(Action(type="tap", x1=ex, y1=ey, description="关装备栏"), inp)
+                            await asyncio.sleep(0.3)
+                    equip_done_this_combat = True
             # 倒数 ≤3s: 走回老巢 (每轮一次)
             if (timer is not None and timer <= WALK_HOME_TIMER
                     and not walked_home_this_combat):
@@ -891,6 +917,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
             # 离开战斗 → 重置 per-combat 标志
             shop_closed_this_combat = False
             drops_done_this_combat = False
+            equip_done_this_combat = False
             walked_home_this_combat = False
 
         # 节流全图 OCR (5s): 结算 / 海克斯 / 选秀 一次查完
