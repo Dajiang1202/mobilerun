@@ -1056,7 +1056,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                         await _execute(a, inp)
                     await asyncio.sleep(2.5)
                     continue
-                elif "选秀" in txt or (stage and stage.endswith("-4")):
+                elif "选秀" in txt or (stage and stage.endswith("-4") and not stage.startswith("1-")):
                     # 选秀: OCR 看到"选秀" 或 stage 含 -4 → 每 2s 点中心
                     # 退出条件: stage 变了(不依赖"选秀"文字, OCR 可能读不到)
                     print(f"[选秀] 检测到(stage={stage}), 每 2s 走中心")
