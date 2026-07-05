@@ -657,6 +657,14 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
             await _execute(a, inp)
         await asyncio.sleep(0.5)
 
+    # 1.5) 先收起商店(如果开着), 等1s让棋盘完全可见, 再轮询
+    f_pre = screenshot_bgr()
+    if f_pre is not None and _shop_open(f_pre, rois, fw, fh):
+        print("  先收起商店, 等1s再轮询")
+        for a in builder.toggle_shop():
+            await _execute(a, inp)
+        await asyncio.sleep(1.0)
+
     # 2) 轮询角色 (棋盘+战备, 会关商店)
     total = len(board) + len(bench)
     print(f"  [轮询] 共 {total} 个棋子 (棋盘{len(board)} + 战备{len(bench)})")
