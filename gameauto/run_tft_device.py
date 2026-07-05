@@ -860,7 +860,7 @@ async def _do_spectate(inp: Input, fw: int, fh: int) -> None:
                 n = int(t)
                 if 0 < n <= 100:           # 血量范围
                     cx = sum(p[0] for p in h.box) // 4
-                    if cx > fw * 0.6:       # 屏幕右侧的玩家列表
+                    if cx > fw * 0.85:      # 右侧15%玩家列表
                         cands.append((hit_to_1000(h, fw, fh), n))
         if cands:
             last_number_at = now
