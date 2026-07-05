@@ -67,6 +67,7 @@ TICK_INTERVAL = 0.5    # 每帧间隔(s)
 
 # 截图/日志保存
 SAVE_DIR = str(_HERE / "logs")   # 截图/识别结果/调试日志存这
+DEBUG_CLICK = False              # 开: 每次点击前后存原图+识别结果, 打意图log
 _shot_counter = 0
 
 def save_screenshot(frame, tag: str = "") -> str:
@@ -80,6 +81,36 @@ def save_screenshot(frame, tag: str = "") -> str:
     cv2.imencode(".png", frame)[1].tofile(str(p))
     print(f"  📷 已保存 {p}")
     return str(p)
+
+
+def _debug_click_tag(intent: str, inp_obj=None):
+    """DEBUG_CLICK=True 时, 返回一个上下文管理器:
+    进: 截图原图 + 全量感知 + 存盘; 出: 截图结果图 + 存盘。
+    intent: 点击意图描述 (如 '买商店2', '点棋盘0', '开装备栏')。
+    """
+    class _Ctx:
+        def __init__(self):
+            self.intent = intent
+            self.dir = Path(SAVE_DIR) / "click_debug"
+            self.dir.mkdir(parents=True, exist_ok=True)
+            self._n = 0
+        def __enter__(self):
+            if not DEBUG_CLICK:
+                return self
+            self._n = _shot_counter
+            before = screenshot_bgr()
+            if before is not None:
+                print(f"  🔍 [点击调试] {self.intent} ← 截图前")
+                cv2.imencode(".png", before)[1].tofile(str(self.dir / f"{self._n:04d}_{intent}_before.png"))
+            return self
+        def __exit__(self, *exc):
+            if not DEBUG_CLICK:
+                return
+            after = screenshot_bgr()
+            if after is not None:
+                print(f"  🔍 [点击调试] {self.intent} → 截图后")
+                cv2.imencode(".png", after)[1].tofile(str(self.dir / f"{self._n:04d}_{intent}_after.png"))
+    return _Ctx()
 
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -106,14 +137,49 @@ def detect_phase(png_bytes: bytes, tm: TemplateMatchTask | None) -> str:
     return "UNKNOWN"
 
 
+_click_seq = 0
+
 async def _execute(action: Action, inp: Input) -> None:
-    """执行单个 Action (归一化[0-1000]) → ScrcpyInput。"""
-    if action.type == "tap":
-        await inp.tap(action.x1, action.y1, 150)
-    elif action.type in ("swipe", "drag"):
-        await inp.swipe(action.x1, action.y1, action.x2, action.y2, action.duration_ms)
-    elif action.type == "wait":
-        await asyncio.sleep(action.duration_ms / 1000.0)
+    """执行单个 Action (归一化[0-1000]) → ScrcpyInput。
+
+    DEBUG_CLICK=True 时, 每次点击前后截图存盘 + 打意图。
+    """
+    global _click_seq
+    is_click = action.type in ("tap", "swipe", "drag")
+    if is_click and DEBUG_CLICK:
+        _click_seq += 1
+        n = _click_seq
+        d = Path(SAVE_DIR) / "click_debug"
+        d.mkdir(parents=True, exist_ok=True)
+        tag = action.description or action.type
+        # 前
+        before = screenshot_bgr()
+        if before is not None:
+            cv2.imencode(".png", before)[1].tofile(str(d / f"{n:04d}_{tag}_before.png"))
+        # 坐标换算到帧像素 (用于 log)
+        from gameauto.utils.coordinate import to_absolute
+        fh_s, fw_s = (before.shape[:2] if before is not None else (0, 0))
+        if action.type == "tap":
+            px, py = to_absolute(action.x1, action.y1, fw_s, fh_s) if fw_s else (0, 0)
+            print(f"  🔍 [#{n}] TAP {tag} norm=({action.x1},{action.y1}) px=({px},{py})")
+            await inp.tap(action.x1, action.y1, 150)
+        elif action.type in ("swipe", "drag"):
+            p1 = to_absolute(action.x1, action.y1, fw_s, fh_s) if fw_s else (0, 0)
+            p2 = to_absolute(action.x2, action.y2, fw_s, fh_s) if fw_s else (0, 0)
+            print(f"  🔍 [#{n}] DRAG {tag} {p1}→{p2} {action.duration_ms}ms")
+            await inp.swipe(action.x1, action.y1, action.x2, action.y2, action.duration_ms)
+        # 后
+        await asyncio.sleep(0.3)
+        after = screenshot_bgr()
+        if after is not None:
+            cv2.imencode(".png", after)[1].tofile(str(d / f"{n:04d}_{tag}_after.png"))
+    else:
+        if action.type == "tap":
+            await inp.tap(action.x1, action.y1, 150)
+        elif action.type in ("swipe", "drag"):
+            await inp.swipe(action.x1, action.y1, action.x2, action.y2, action.duration_ms)
+        elif action.type == "wait":
+            await asyncio.sleep(action.duration_ms / 1000.0)
 
 
 # ── M1: observe ────────────────────────────────────────────────────────
