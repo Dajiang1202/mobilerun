@@ -67,7 +67,7 @@ TICK_INTERVAL = 0.5    # 每帧间隔(s)
 
 # 截图/日志保存
 SAVE_DIR = str(_HERE / "logs")   # 截图/识别结果/调试日志存这
-DEBUG_CLICK = False              # 开: 每次点击前后存原图+识别结果, 打意图log
+DEBUG_CLICK = True              # 开: 每次点击前后存原图+识别结果, 打意图log
 _shot_counter = 0
 
 def save_screenshot(frame, tag: str = "") -> str:
@@ -1068,6 +1068,21 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
               f"acted={tracker.acted_this_planning}")
 
         if phase == "备战" and not tracker.acted_this_planning:
+            # ★ 先检查海克斯(2-1等回合): 有则先选, 选完再备战
+            ok_aug, buf_aug = cv2.imencode(".png", frame)
+            if ok_aug:
+                aug_txt = ocr_full(buf_aug.tobytes()).combined_text
+                if any(k in aug_txt for k in ("强化", "符文", "海克斯")):
+                    idx = random.choice([0, 1, 2])
+                    print(f"[备战] 先选海克斯第 {idx} 个")
+                    for a in builder.pick_augment(idx):
+                        await _execute(a, inp)
+                    await asyncio.sleep(2.5)
+                    # 选完重新拿帧, 继续备战
+                    frame = screenshot_bgr()
+                    if frame is None:
+                        tracker.mark_acted()
+                        continue
             st = decide_perceive(frame)   # full + 掉落物(?) + 商店开闭
             viz_st = st                   # 预览窗画 OCR/血条
             last_board = st.get("board_clicks", []) or []
