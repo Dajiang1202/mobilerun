@@ -51,7 +51,7 @@ from gameauto.run_tft_replay import (
 
 DEVICE_SERIAL = "4NZ0225613000015"   # hdc list targets 查看
 
-MODE = "act"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
+MODE = "auto"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/
@@ -292,7 +292,7 @@ async def act(capture: Capture, inp: Input) -> None:
                 frame = screenshot_bgr()
                 if frame is not None:
                     st = decide_perceive(frame)
-                    await _walk_home(builder, inp, st.get("board_clicks", []), rois, fw, fh)
+                    await _tap_home(inp, rois, fw, fh)
                 continue
 
             # ── 常规动作命令 ──
@@ -512,17 +512,15 @@ async def detect_drops_tm(frame, tm, rois, fw, fh, threshold: float = DROP_TM_TH
     return drops
 
 
-async def _walk_home(builder: TftActions, inp: Input, board_clicks, rois, fw, fh) -> None:
-    """把一个场上棋子拖回老巢(home ROI)。board_clicks 为空则跳过。"""
+async def _tap_home(inp: Input, rois, fw, fh) -> None:
+    """点击老巢位置(home ROI 中心)。"""
     home = _flat_roi(rois, "ocr", "home")
-    if not home or not board_clicks:
+    if not home:
         return
-    hx = int((home[0] + home[2]) / 2 * fw)
-    hy = int((home[1] + home[3]) / 2 * fh)
-    champ = board_clicks[0]
-    print(f"  走回老巢: {champ} → ({hx},{hy})")
-    for a in builder.move_champion(champ, (hx, hy)):
-        await _execute(a, inp)
+    hx, hy = int((home[0] + home[2]) / 2 * fw), int((home[1] + home[3]) / 2 * fh)
+    nx, ny = to_normalized(hx, hy, fw, fh)
+    print(f"  点老巢 ({hx},{hy})")
+    await inp.tap(nx, ny, 150)
 
 
 def _build_situation(board_names, bench_names, ocr):
@@ -920,7 +918,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
                             await _execute(a, inp)
                         await asyncio.sleep(1.0)   # 慢一点, 等棋子走过去拾取
                     # 点完走回老巢
-                    await _walk_home(builder, inp, last_board, rois, fw, fh)
+                    await _tap_home(inp, rois, fw, fh)
                     drops_done_this_combat = True
             # 战斗空闲: 上装备 (开栏→检测金边→拖→关; 每轮一次)
             if not equip_done_this_combat and last_board:
@@ -950,7 +948,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
             # 倒数 ≤3s: 走回老巢 (每轮一次)
             if (timer is not None and timer <= WALK_HOME_TIMER
                     and not walked_home_this_combat):
-                await _walk_home(builder, inp, last_board, rois, fw, fh)
+                await _tap_home(inp, rois, fw, fh)
                 walked_home_this_combat = True
         else:
             # 离开战斗 → 重置 per-combat 标志
