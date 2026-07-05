@@ -518,54 +518,79 @@ async def _walk_home(builder: TftActions, inp: Input, board_clicks, rois, fw, fh
         await _execute(a, inp)
 
 
-async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh) -> None:
-    """备战阶段的完整动作序列 (真机, 带中途感知):
+def _build_situation(board_names, bench_names, ocr):
+    """构建自然语言局势描述, 供后续 LLM 决策用。
 
-    顺序: 先买(店开着, 遍历会关商店) → 上装备(开装备栏→检测→拖) → 遍历棋子(点→OCR名→关)
-          → 卖(战备>5 卖最后)。掉落物(问号)暂靠 decide_perceive drops, 识别不稳后续改模板。
+    返回类似: "场上: 凯尔(1费,暗星/牧羊人), 波比(1费) | 战备: 瑟提(2费) |
+    激活: 暗星2档 牧羊人1档 | 金币42 等级6 | 商店: [凯尔,波比,·,·,·]"
+    """
+    try:
+        from gameauto.skills.tft.data import champion_info, compute_active_traits
+    except ImportError:
+        return "(data.py 不可用)"
+
+    def _fmt(names):
+        parts = []
+        for n in names:
+            if not n or n == "?":
+                continue
+            info = champion_info(n)
+            if info:
+                traits = "/".join(info.get("traits", [])[:3])
+                parts.append(f"{n}({info.get('cost','?')}费,{traits})" if traits else f"{n}({info.get('cost','?')}费)")
+            else:
+                parts.append(f"{n}(未识别)")
+        return parts
+
+    board_fmt = _fmt(board_names)
+    bench_fmt = _fmt(bench_names)
+    all_real = [n for n in board_names + bench_names if n and n != "?" and champion_info(n)]
+    traits = compute_active_traits(all_real) if all_real else []
+
+    parts = []
+    if board_fmt:
+        parts.append(f"场上: {', '.join(board_fmt)}")
+    if bench_fmt:
+        parts.append(f"战备: {', '.join(bench_fmt)}")
+    if traits:
+        parts.append("激活: " + " ".join(f"{t['trait']}{t['tier']}档" for t in traits[:5]))
+    parts.append(f"金币{ocr.get('gold','?')} 等级{ocr.get('level','?')}")
+    shop = [ocr.get(f'shop{i}','') or '·' for i in range(5)]
+    parts.append(f"商店:{shop}")
+    return " | ".join(parts)
+
+
+async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh):
+    """备战阶段完整序列 (新时序):
+
+    1. 30% 买经验
+    2. 轮询角色 (棋盘+bench 点开→OCR名→关, 会关商店)
+    3. 商店关了 → 点 gold 打开
+    4. 购买 (重新OCR商店, 随机买有字的槽)
+    5. 收起商店 (点 gold)
+    6. 上装备 (开装备栏→金边检测→拖给场上棋子→关)
+    7. 卖 (战备>5)
+    8. 构建自然语言局势描述 (供 LLM)
+    问号留战斗阶段。
+    返回 (names_map, situation_desc)。
     """
     board = st.get("board_clicks", []) or []
     bench = st.get("bench_clicks", []) or []
     ocr = st.get("ocr", {})
-
-    # 注: 问号掉落物已移到战斗阶段(模板匹配), 备战不处理
-
-    # 1) 商店购买 (店开着才买; 放遍历前, 避免遍历关了商店买不了)
-    if st.get("shop_open"):
-        cands = [i for i in range(5) if ocr.get(f"shop{i}")]
-        if cands:
-            idx = random.choice(cands)
-            print(f"  买商店{idx} ({ocr.get(f'shop{idx}')!r})")
-            for a in builder.buy_shop_slot(idx):
-                await _execute(a, inp)
-            await asyncio.sleep(0.5)
-
-    # 2) 上装备: 点装备栏按钮 → 重新截图检测金边 → 有就拖给场上棋子 → 关装备栏
-    equip_btn = _flat_roi(rois, "ocr", "equip_btn")
-    target = board[0] if board else (bench[0] if bench else None)
-    if equip_btn and target:
-        ex, ey = builder._roi_mid1000(equip_btn)
-        await _execute(Action(type="tap", x1=ex, y1=ey, description="开装备栏"), inp)
-        await asyncio.sleep(0.6)
-        f2 = screenshot_bgr()
-        if f2 is not None:
-            items, _, _ = detect_items(f2, rois)
-            for slot_name, present in items.items():
-                if present:
-                    slot_idx = int(slot_name.replace("item", ""))
-                    print(f"  装备槽{slot_idx}→棋子 @ {target}")
-                    for a in builder.equip_from_slot(slot_idx, target):
-                        await _execute(a, inp)
-                    await asyncio.sleep(0.4)
-        await _execute(Action(type="tap", x1=ex, y1=ey, description="关装备栏"), inp)
-        await asyncio.sleep(0.4)
-
-    # 3) 遍历棋子 (棋盘+战备): 点开 → OCR champion 区读名 → 关面板 → 收集名字
     champion_roi = _flat_roi(rois, "ocr", "champion")
+
+    # 1) 30% 买经验
+    if random.random() < 0.3:
+        print("  [30%] 买经验")
+        for a in builder.buy_xp():
+            await _execute(a, inp)
+        await asyncio.sleep(0.5)
+
+    # 2) 轮询角色 (棋盘+战备, 会关商店)
     total = len(board) + len(bench)
-    print(f"  [遍历] 共 {total} 个棋子 (棋盘{len(board)} + 战备{len(bench)}), 逐个点击:")
+    print(f"  [轮询] 共 {total} 个棋子 (棋盘{len(board)} + 战备{len(bench)})")
     collected = {"棋盘": [], "战备": []}
-    names_map: dict = {}                                # {点击位置: 名字}, 供预览可视化
+    names_map: dict = {}
     for label, clicks in (("棋盘", board), ("战备", bench)):
         for i, pos in enumerate(clicks):
             print(f"  [点击] {label}{i}/{len(clicks)} @ {pos}")
@@ -581,22 +606,74 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
                     crop = f3[T:B, L:R].copy()
                     name = _ocr_image(crop)[0].strip()
                     print(f"    识别: {name!r}")
-                    # 保存识别截图 (以 位置_名字 命名, 便于核对 OCR)
-                    save_dir = Path("logs") / "champions"
+                    save_dir = Path(SAVE_DIR) / "champions"
                     save_dir.mkdir(parents=True, exist_ok=True)
                     safe = name.replace("/", "_").replace("\\", "_") or "unknown"
-                    cv2.imencode(".png", crop)[1].tofile(
-                        str(save_dir / f"{label}{i}_{safe}.png"))
+                    cv2.imencode(".png", crop)[1].tofile(str(save_dir / f"{label}{i}_{safe}.png"))
             collected[label].append(name or "?")
             names_map[pos] = name or "?"
             for a in builder.close_panel():
                 await _execute(a, inp)
             await asyncio.sleep(0.4)
-    print(f"  === 棋子汇总 ===")
     print(f"  上场({len(collected['棋盘'])}): {collected['棋盘']}")
     print(f"  场下({len(collected['战备'])}): {collected['战备']}")
 
-    # 4) 卖: 战备>5 → 卖最后一个
+    # 3) 轮询关了商店 → 点 gold 打开
+    f_check = screenshot_bgr()
+    if f_check is not None and not _shop_open(f_check, rois, fw, fh):
+        print("  轮询关了商店, 点 gold 打开")
+        for a in builder.toggle_shop():
+            await _execute(a, inp)
+        await asyncio.sleep(0.6)
+
+    # 4) 购买 (重新 OCR 商店槽)
+    f_shop = screenshot_bgr()
+    if f_shop is not None:
+        shop_texts = []
+        for i in range(5):
+            sroi = _flat_roi(rois, "ocr", f"shop{i}")
+            if sroi:
+                L, T, R, B = int(sroi[0]*fw), int(sroi[1]*fh), int(sroi[2]*fw), int(sroi[3]*fh)
+                t = _ocr_image(f_shop[T:B, L:R])[0].strip()
+                shop_texts.append(t)
+            else:
+                shop_texts.append("")
+        cands = [i for i, t in enumerate(shop_texts) if t]
+        if cands:
+            idx = random.choice(cands)
+            print(f"  买商店{idx} ({shop_texts[idx]!r})")
+            for a in builder.buy_shop_slot(idx):
+                await _execute(a, inp)
+            await asyncio.sleep(0.5)
+
+    # 5) 收起商店
+    print("  收起商店")
+    for a in builder.toggle_shop():
+        await _execute(a, inp)
+    await asyncio.sleep(0.3)
+
+    # 6) 上装备 (开装备栏→检测金边→拖→关)
+    equip_btn = _flat_roi(rois, "ocr", "equip_btn")
+    target = board[0] if board else (bench[0] if bench else None)
+    if equip_btn and target:
+        ex, ey = builder._roi_mid1000(equip_btn)
+        print(f"  开装备栏 ({ex},{ey})")
+        await _execute(Action(type="tap", x1=ex, y1=ey, description="开装备栏"), inp)
+        await asyncio.sleep(0.6)
+        f2 = screenshot_bgr()
+        if f2 is not None:
+            items, _, _ = detect_items(f2, rois)
+            for slot_name, present in items.items():
+                if present:
+                    slot_idx = int(slot_name.replace("item", ""))
+                    print(f"  装备槽{slot_idx}→棋子 @ {target}")
+                    for a in builder.equip_from_slot(slot_idx, target):
+                        await _execute(a, inp)
+                    await asyncio.sleep(0.4)
+        await _execute(Action(type="tap", x1=ex, y1=ey, description="关装备栏"), inp)
+        await asyncio.sleep(0.3)
+
+    # 7) 卖 (战备>5)
     if len(bench) > 5:
         last = bench[-1]
         print(f"  战备{len(bench)}个>5, 卖最后一个 @ {last}")
@@ -604,7 +681,11 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
             await _execute(a, inp)
         await asyncio.sleep(0.8)
 
-    return names_map
+    # 8) 自然语言局势描述 (供 LLM)
+    desc = _build_situation(collected["棋盘"], collected["战备"], ocr)
+    print(f"  [局势] {desc}")
+
+    return names_map, desc
 
 
 async def _do_spectate(inp: Input, fw: int, fh: int) -> None:
@@ -838,7 +919,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
             bench_n = len(st.get("bench_clicks", []) or [])
             print(f"  备战: 棋盘{board_n} 战备{bench_n} 店开={st.get('shop_open')} "
                   f"掉落{len(st.get('drops', []) or [])} 装备{st.get('items')}")
-            viz_names = await _do_planning(frame, st, builder, inp, rois, fw, fh)
+            viz_names, situation_desc = await _do_planning(frame, st, builder, inp, rois, fw, fh)
             tracker.mark_acted()
         elif phase == "结算":
             cont = builder.tap_continue()
