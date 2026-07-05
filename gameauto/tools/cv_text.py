@@ -102,3 +102,38 @@ def overlay_text(
         fill=(int(color_bgr[2]), int(color_bgr[1]), int(color_bgr[0])),
     )
     return cv2.cvtColor(np.array(pil.convert("RGB")), cv2.COLOR_RGB2BGR)
+
+
+def overlay_multi(
+    img: np.ndarray,
+    items: list[tuple[str, tuple[int, int], tuple[int, int, int], int]],
+    bg_alpha: float = 0.5,
+    pad: int = 5,
+) -> np.ndarray:
+    """批量画多段文字 (单次 PIL 往返), 大幅减少 overlay_text 逐条调用的卡顿。
+
+    items: [(text, (x,y), color_bgr, px), ...]
+    """
+    pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)).convert("RGBA")
+    fonts: dict[int, ImageFont.FreeTypeFont] = {}
+    # 先画半透明底
+    ov = Image.new("RGBA", pil.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    for text, (x, y), color_bgr, px in items:
+        if px not in fonts:
+            fonts[px] = _get_font(px)
+        font = fonts[px]
+        try:
+            l, t, r, b = font.getbbox(str(text))
+            tw, th = r - l, b - t
+        except Exception:  # noqa: BLE001
+            tw, th = px * len(str(text)) // 2, px
+        od.rectangle([x - pad, y - pad, x + tw + pad, y + th + pad * 2],
+                      fill=(0, 0, 0, int(255 * bg_alpha)))
+    pil = Image.alpha_composite(pil, ov)
+    # 再画文字
+    draw = ImageDraw.Draw(pil)
+    for text, (x, y), color_bgr, px in items:
+        draw.text((x, y), str(text), font=fonts.get(px) or _get_font(px),
+                  fill=(int(color_bgr[2]), int(color_bgr[1]), int(color_bgr[0])))
+    return cv2.cvtColor(np.array(pil.convert("RGB")), cv2.COLOR_RGB2BGR)

@@ -17,6 +17,7 @@ import os
 import random
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -35,7 +36,7 @@ from gameauto.skills.tft.phase import PhaseTracker
 from gameauto.skills.tft.pregame import (
     PreGameDriver, make_tap_fn, ocr_full, START_KEYWORDS, hit_to_1000,
 )
-from gameauto.tools.cv_text import put_text_zh, overlay_text
+from gameauto.tools.cv_text import put_text_zh, overlay_text, overlay_multi
 from gameauto.utils.coordinate import to_normalized
 
 # 复用回放工作台里写好的感知后端 (full_perceive = 血条 + OCR)
@@ -50,7 +51,7 @@ from gameauto.run_tft_replay import (
 
 DEVICE_SERIAL = "4NZ0225613000015"   # hdc list targets 查看
 
-MODE = "auto"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
+MODE = "act"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/
@@ -63,6 +64,22 @@ MAX_FPS = 10
 SHOW = True            # 显示预览窗 (OCR结果/棋子名/决策/血条)
 SHOW_ROIS = False      # 预览窗是否画 ROI 框 (调试用, 默认关)
 TICK_INTERVAL = 0.5    # 每帧间隔(s)
+
+# 截图/日志保存
+SAVE_DIR = str(_HERE / "logs")   # 截图/识别结果/调试日志存这
+_shot_counter = 0
+
+def save_screenshot(frame, tag: str = "") -> str:
+    """保存截图到 SAVE_DIR/screenshots/, 返回路径。"""
+    global _shot_counter
+    _shot_counter += 1
+    d = Path(SAVE_DIR) / "screenshots"
+    d.mkdir(parents=True, exist_ok=True)
+    name = f"shot_{_shot_counter:04d}" + (f"_{tag}" if tag else "") + ".png"
+    p = d / name
+    cv2.imencode(".png", frame)[1].tofile(str(p))
+    print(f"  📷 已保存 {p}")
+    return str(p)
 
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -178,50 +195,173 @@ async def match(capture: Capture, inp: Input) -> None:
 
 _HELP = """\
 命令 (坐标均为像素, 自己看预览/截图量):
-  refresh              刷新商店
-  buy_xp               购买经验
-  buy <0-4>            买商店第 N 格
-  click <x> <y>        点击棋子 (弹面板)
-  sell <x> <y>         出售棋子 (长按1s+拖到底)
-  equip <slot> <x> <y> 从装备槽 slot(0-2) 拖到棋子(x,y)
-  close                关闭棋子面板
-  carousel             选秀拾取
-  augment [0-2]        海克斯选第N个(默认0)
-  continue             结算/继续
-  shop                 开关商店
-  drop <x> <y>         拾取掉落物(像素)
-  tap <x> <y>          裸点击 (像素)
-  swipe <x1> <y1> <x2> <y2> [ms]   裸滑动
-  help                 帮助
-  q                    退出"""
+  ── 动作 ──
+  refresh / buy_xp / buy <0-4> / shop
+  click <x> <y> / sell <x> <y> / close
+  equip <slot> <x> <y>      从装备槽拖到棋子
+  drop <x> <y> / tap <x y> / swipe <x1 y1 x2 y2> [ms]
+  carousel / augment [0-2] / continue
+  ── 子流程调试 ──
+  iterate        遍历所有棋子(点开→OCR名→关→汇总)
+  perceive       一次性感知(gold/shop/血条/装备/掉落)
+  drops          模板匹配检测问号掉落物
+  equip_open     点装备栏按钮(展开)
+  equip_check    检测装备槽金边(有无装备)
+  home           拖一个棋子走回老巢
+  ── 其他 ──
+  help           帮助 | q 退出
+  预览窗: 按 s 存截图"""
 
 
 async def act(capture: Capture, inp: Input) -> None:
     w, h = capture.native_resolution
-    builder = TftActions(_load_rois(), w, h)
-    print(f"=== M2 动作调试: 真机 {w}x{h} | 输入命令执行 (help 看列表, q 退出) ===")
-    print(_HELP)
+    rois = _load_rois()
+    f0 = screenshot_bgr()
+    fh, fw = f0.shape[:2] if f0 is not None else (h // SCALE, w // SCALE)
+    builder = TftActions(rois, fw, fh)
+    # 模板 (drops 检测用)
+    tm = TemplateMatchTask(str(_TEMPLATES_DIR)) if _TEMPLATES_DIR.is_dir() else None
+    print(f"=== M2 动作调试: 帧 {fw}x{fh} | help 看列表, q 退出, 预览窗按 s 存截图 ===")
+
+    # 预览线程 (daemon): 实时显示画面 + 's' 存截图
+    _stop = threading.Event()
+    def _preview():
+        cv2.namedWindow("TFT act", cv2.WINDOW_NORMAL)
+        while not _stop.is_set():
+            frame = screenshot_bgr()
+            if frame is not None:
+                cv2.imshow("TFT act", frame)
+                key = cv2.waitKey(80) & 0xFF
+                if key == ord("s"):
+                    save_screenshot(frame, "manual")
+            else:
+                time.sleep(0.05)
+        cv2.destroyAllWindows()
+    threading.Thread(target=_preview, daemon=True).start()
+
     loop = asyncio.get_event_loop()
-    while True:
-        try:
-            cmd = (await loop.run_in_executor(None, input, "\n> ")).strip()
-        except (EOFError, KeyboardInterrupt):
-            break
-        if not cmd or cmd == "q":
-            break
-        actions = _parse_cmd(cmd, builder, w, h)
-        if actions is None:
-            print("  未知命令, 输入 help")
-            continue
-        if actions == "help":
-            print(_HELP)
-            continue
-        if not actions:
-            print("  (无动作: ROI 没标或参数不对)")
-            continue
-        for a in actions:
-            print(f"  执行: {a.type} {a.description}")
-            await _execute(a, inp)
+    try:
+        while True:
+            try:
+                cmd = (await loop.run_in_executor(None, input, "\n> ")).strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not cmd or cmd == "q":
+                break
+
+            # ── 子流程命令 (async, 在此直接处理) ──
+            if cmd == "iterate":
+                await _cmd_iterate(builder, inp, rois, fw, fh)
+                continue
+            if cmd == "perceive":
+                _cmd_perceive(fw, fh)
+                continue
+            if cmd == "drops":
+                frame = screenshot_bgr()
+                if frame is not None:
+                    drops = await detect_drops_tm(frame, tm, rois, fw, fh)
+                    print(f"  检出 {len(drops)} 个掉落物: {drops}")
+                    if drops:
+                        disp = frame.copy()
+                        for dp in drops:
+                            cv2.circle(disp, dp, 20, (0, 0, 255), 3)
+                        save_screenshot(disp, "drops")
+                continue
+            if cmd == "equip_open":
+                roi = _flat_roi(rois, "ocr", "equip_btn")
+                if roi:
+                    ex, ey = builder._roi_mid1000(roi)
+                    print(f"  点装备栏 ({ex},{ey})")
+                    await inp.tap(ex, ey, 150)
+                else:
+                    print("  equip_btn ROI 没标")
+                continue
+            if cmd == "equip_check":
+                frame = screenshot_bgr()
+                if frame is not None:
+                    items, _, det = detect_items(frame, rois)
+                    for d in det:
+                        print(f"  {d}")
+                continue
+            if cmd == "home":
+                frame = screenshot_bgr()
+                if frame is not None:
+                    st = decide_perceive(frame)
+                    await _walk_home(builder, inp, st.get("board_clicks", []), rois, fw, fh)
+                continue
+
+            # ── 常规动作命令 ──
+            actions = _parse_cmd(cmd, builder, w, h)
+            if actions is None:
+                print("  未知命令, 输入 help")
+                continue
+            if actions == "help":
+                print(_HELP)
+                continue
+            if not actions:
+                print("  (无动作: ROI 没标或参数不对)")
+                continue
+            for a in actions:
+                print(f"  执行: {a.type} {a.description}")
+                await _execute(a, inp)
+            # 命令后截图
+            frame = screenshot_bgr()
+            if frame is not None:
+                save_screenshot(frame, cmd.replace(" ", "_")[:20])
+    finally:
+        _stop.set()
+
+
+async def _cmd_iterate(builder: TftActions, inp: Input, rois, fw, fh) -> None:
+    """遍历所有棋子: 点开→OCR名→关→汇总 + 保存识别裁图。"""
+    frame = screenshot_bgr()
+    if frame is None:
+        return
+    st = decide_perceive(frame)
+    board = st.get("board_clicks", []) or []
+    bench = st.get("bench_clicks", []) or []
+    print(f"  检出: 棋盘{len(board)} 战备{len(bench)}")
+    champion_roi = _flat_roi(rois, "ocr", "champion")
+    collected = {"棋盘": [], "战备": []}
+    for label, clicks in (("棋盘", board), ("战备", bench)):
+        for i, pos in enumerate(clicks):
+            print(f"  [点击] {label}{i}/{len(clicks)} @ {pos}")
+            for a in builder.click_champion(pos):
+                await _execute(a, inp)
+            await asyncio.sleep(0.5)
+            name = ""
+            if champion_roi:
+                L, T, R, B = (int(champion_roi[0]*fw), int(champion_roi[1]*fh),
+                              int(champion_roi[2]*fw), int(champion_roi[3]*fh))
+                f3 = screenshot_bgr()
+                if f3 is not None:
+                    crop = f3[T:B, L:R].copy()
+                    name = _ocr_image(crop)[0].strip()
+                    print(f"    识别: {name!r}")
+                    d = Path(SAVE_DIR) / "champions"
+                    d.mkdir(parents=True, exist_ok=True)
+                    safe = name.replace("/", "_") or "unknown"
+                    cv2.imencode(".png", crop)[1].tofile(str(d / f"{label}{i}_{safe}.png"))
+            collected[label].append(name or "?")
+            for a in builder.close_panel():
+                await _execute(a, inp)
+            await asyncio.sleep(0.4)
+    print(f"  === 汇总 ===")
+    print(f"  上场({len(collected['棋盘'])}): {collected['棋盘']}")
+    print(f"  场下({len(collected['战备'])}): {collected['战备']}")
+
+
+def _cmd_perceive(fw, fh) -> None:
+    """一次性全量感知, 打印 gold/shop/血条/装备/掉落。"""
+    frame = screenshot_bgr()
+    if frame is None:
+        return
+    st = decide_perceive(frame)
+    ocr = st.get("ocr", {})
+    print(f"  gold={ocr.get('gold','')} stage={ocr.get('stage','')} level={ocr.get('level','')}")
+    print(f"  shop={[ocr.get(f'shop{i}','') or '·' for i in range(5)]}")
+    print(f"  店开={st.get('shop_open')} 血条=棋盘{len(st.get('board_clicks',[]) or [])}"
+          f"+战备{len(st.get('bench_clicks',[]) or [])} 装备={st.get('items')}")
 
 
 def _parse_cmd(cmd: str, builder: TftActions, w: int, h: int):
@@ -708,49 +848,43 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
         if SHOW:
             disp = frame.copy()
 
-            # 血条框 (棋盘+战备, 来自最近感知)
+            # 血条框 (棋盘+战备)
             for bar_key, col in (("board_bars", (0, 255, 0)),
                                  ("bench_bars", (0, 200, 255))):
                 for bx in viz_st.get(bar_key, []) or []:
                     cv2.rectangle(disp, (bx[0], bx[1]), (bx[2], bx[3]), col, 2)
-
-            # 棋子名 (在点击位置旁标出识别到的名字)
-            for pos, nm in viz_names.items():
-                disp = overlay_text(disp, nm, (pos[0] - 30, pos[1] + 12),
-                                    color_bgr=(0, 255, 255), px=18, bg_alpha=0.6)
-
-            # 可选: ROI 框
+            # 可选 ROI 框
             if SHOW_ROIS:
-                for key in ("own_board", "bench", "drop_region", "home",
-                            "stage", "timer", "gold", "champion"):
+                for key in ("own_board", "bench", "drop_region", "home"):
                     roi = _flat_roi(rois, "ocr", key)
                     if roi:
-                        cv2.rectangle(disp,
-                                      (int(roi[0]*fw), int(roi[1]*fh)),
-                                      (int(roi[2]*fw), int(roi[3]*fh)),
-                                      (128, 128, 128), 1)
+                        cv2.rectangle(disp, (int(roi[0]*fw), int(roi[1]*fh)),
+                                      (int(roi[2]*fw), int(roi[3]*fh)), (128, 128, 128), 1)
 
-            # 左上信息块: 阶段 + OCR 结果 + 决策摘要
+            # 批量文字 (单次 PIL, 不卡)
             ocr = viz_st.get("ocr", {}) if viz_st else {}
-            lines = [
-                f"{phase}  stage={stage}  t={timer}  ord={tracker.ordinal}",
-                f"gold={ocr.get('gold','')}  shop={[ocr.get(f'shop{i}','') or '·' for i in range(5)]}",
-                f"店开={viz_st.get('shop_open','-')}  装备={viz_st.get('items','-')}  掉落={len(viz_st.get('drops',[]) or []) if viz_st else 0}",
-            ]
+            items = [(f"{phase}  stage={stage}  t={timer}", (15, 12), (0,255,255), 26)]
+            items.append((f"gold={ocr.get('gold','')}  shop={[ocr.get(f'shop{i}','') or '·' for i in range(5)]}",
+                          (15, 44), (255,255,255), 20))
             if viz_names:
                 board_names = [v for k, v in viz_names.items()
                                if k in (viz_st.get("board_clicks") or [])]
                 bench_names = [v for k, v in viz_names.items()
                                if k in (viz_st.get("bench_clicks") or [])]
-                lines.append(f"上场({len(board_names)}): {board_names}")
-                lines.append(f"场下({len(bench_names)}): {bench_names}")
-            for i, line in enumerate(lines):
-                disp = overlay_text(disp, line, (15, 15 + i * 32),
-                                    color_bgr=(255, 255, 255), px=22, bg_alpha=0.55)
+                items.append((f"上场({len(board_names)}): {board_names}", (15, 68), (255,255,255), 18))
+                items.append((f"场下({len(bench_names)}): {bench_names}", (15, 90), (255,255,255), 18))
+            # 棋子名标在位置旁
+            for pos, nm in viz_names.items():
+                items.append((nm, (pos[0] - 25, pos[1] + 8), (0,255,255), 16))
+            disp = overlay_multi(disp, items, bg_alpha=0.55)
 
-            cv2.imshow("TFT auto", disp)
-            if (cv2.waitKey(1) & 0xFF) == ord("q"):
+            # 's' 存截图
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
                 break
+            if key == ord("s"):
+                save_screenshot(disp, f"{phase}_{stage}")
+            cv2.imshow("TFT auto", disp)
         await asyncio.sleep(0.3)
     if SHOW:
         cv2.destroyAllWindows()
