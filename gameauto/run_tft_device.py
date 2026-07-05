@@ -32,7 +32,9 @@ from gameauto.core.orchestration.base import Action
 from gameauto.core.perception.cv.template_match import TemplateMatchTask
 from gameauto.skills.tft.actions import TftActions
 from gameauto.skills.tft.phase import PhaseTracker
-from gameauto.skills.tft.pregame import PreGameDriver, make_tap_fn, ocr_full, START_KEYWORDS
+from gameauto.skills.tft.pregame import (
+    PreGameDriver, make_tap_fn, ocr_full, START_KEYWORDS, hit_to_1000,
+)
 from gameauto.tools.cv_text import put_text_zh, overlay_text
 from gameauto.utils.coordinate import to_normalized
 
@@ -390,6 +392,70 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
         await asyncio.sleep(0.8)
 
 
+async def _do_spectate(inp: Input, fw: int, fh: int) -> None:
+    """我方出局后观战: 先点「继续观看」, 然后每 10s 点右侧一个存活玩家(血量>0)。
+
+    保证游戏测试时长 — 不立即退出, 持续观战到回大厅(开始游戏出现)为止。
+    """
+    print("[观战] 我方出局, 进入观战")
+    # 1) 优先点「继续观看」直到它消失 (最多 8 次)
+    for _ in range(8):
+        f = screenshot_bgr()
+        if f is None:
+            await asyncio.sleep(1)
+            continue
+        ok, buf = cv2.imencode(".png", f)
+        if not ok:
+            continue
+        res = ocr_full(buf.tobytes())
+        if res.find(START_KEYWORDS):
+            print("[观战] 回到大厅, 结束观战")
+            return
+        hit = res.find(("继续观看", "继续观"))
+        if not hit:
+            break
+        x, y = hit_to_1000(hit, fw, fh)
+        print(f"[观战] 点继续观看 ({x},{y})")
+        await inp.tap(x, y, 150)
+        await asyncio.sleep(2)
+
+    # 2) 持续观战: 每 10s 点右侧一个存活玩家(纯数字血量 >0)
+    print("[观战] 持续观战, 每 10s 点一个右侧存活玩家 (Ctrl+C 退出)")
+    last_click = 0.0
+    while True:
+        f = screenshot_bgr()
+        if f is None:
+            await asyncio.sleep(5)
+            continue
+        ok, buf = cv2.imencode(".png", f)
+        if not ok:
+            await asyncio.sleep(5)
+            continue
+        res = ocr_full(buf.tobytes())
+        if res.find(START_KEYWORDS):
+            print("[观战] 回到大厅, 结束观战")
+            return
+        now = time.time()
+        if now - last_click >= 10:
+            last_click = now
+            cands = []
+            for h in res.hits:
+                t = h.text.strip()
+                if t.isdigit():
+                    n = int(t)
+                    if 0 < n <= 100:           # 血量范围
+                        cx = sum(p[0] for p in h.box) // 4
+                        if cx > fw * 0.6:       # 屏幕右侧的玩家列表
+                            cands.append((hit_to_1000(h, fw, fh), n))
+            if cands:
+                (x, y), n = random.choice(cands)
+                print(f"[观战] 点存活玩家(血{n}) ({x},{y})")
+                await inp.tap(x, y, 150)
+            else:
+                print("[观战] (本帧右侧没识别到存活血量)")
+        await asyncio.sleep(2)
+
+
 async def auto(capture: Capture, inp: Input, tm) -> None:
     """自动打一局: 大厅则先匹配 → 备战按规则动作 / 战斗等待 / 结算点继续退出。
 
@@ -458,6 +524,12 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
             if ok:
                 res = ocr_full(buf.tobytes())
                 txt = res.combined_text
+                if "您获得了" in txt:
+                    # 我方出局 → 进入观战 (不退出, 持续看到回大厅)
+                    print("[auto] 我方出局(您获得了), 进观战")
+                    await _do_spectate(inp, fw, fh)
+                    print("[auto] 观战结束, 退出本局")
+                    break
                 if re.search(r"第.{0,3}名", txt):
                     phase = "结算"
                 elif any(k in txt for k in ("强化", "符文", "海克斯")):
