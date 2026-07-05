@@ -66,6 +66,13 @@ def build_checklist() -> list[dict]:
         ("buy_xp_btn", "购买经验按钮"),
     ]:
         items.append({"file": nm, "cat": "buttons", "desc": f"按钮-{desc}"})
+    # 掉落物(问号)模板 — 三种颜色, 模板匹配识别 (替代不稳的全图OCR)
+    for nm, desc in [
+        ("drop_blue", "蓝色问号掉落物"),
+        ("drop_white", "白色问号掉落物"),
+        ("drop_gold", "金色问号掉落物"),
+    ]:
+        items.append({"file": nm, "cat": "drops", "desc": f"掉落-{desc}"})
     return items
 
 
