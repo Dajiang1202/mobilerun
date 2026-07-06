@@ -14,3 +14,4 @@ gameauto/test_vlm_output/
 *.mp4
 *.mov
 *.avi
+gameauto/core/capture/scrcpy/captured/output.zip

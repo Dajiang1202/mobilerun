@@ -1,0 +1,75 @@
+{
+  "file": "shot_0006",
+  "label": "thinking_on",
+  "model": "qwen3.6-plus",
+  "latency_ms": 107391.0,
+  "screen_type": "playing",
+  "buttons": [
+    {
+      "text": "明牌",
+      "color": "blue",
+      "x": 350,
+      "y": 550
+    },
+    {
+      "text": "提示",
+      "color": "gold",
+      "x": 550,
+      "y": 550
+    },
+    {
+      "text": "出牌",
+      "color": "gold",
+      "x": 700,
+      "y": 550
+    }
+  ],
+  "hand_cards_count": 20,
+  "hand_cards_first5": [
+    {
+      "suit": "j",
+      "value": "big_joker",
+      "x": 160,
+      "y": 780
+    },
+    {
+      "suit": "j",
+      "value": "small_joker",
+      "x": 200,
+      "y": 780
+    },
+    {
+      "suit": "s",
+      "value": "2",
+      "x": 240,
+      "y": 780
+    },
+    {
+      "suit": "c",
+      "value": "2",
+      "x": 280,
+      "y": 780
+    },
+    {
+      "suit": "s",
+      "value": "A",
+      "x": 320,
+      "y": 780
+    }
+  ],
+  "actions": [
+    {
+      "type": "tap",
+      "x": 550.0,
+      "y": 550.0,
+      "desc": "Click '提示'"
+    },
+    {
+      "type": "tap",
+      "x": 700.0,
+      "y": 550.0,
+      "desc": "Click '出牌'"
+    }
+  ],
+  "vlm_raw_preview": "{\n  \"screen_type\": \"playing\",\n  \"buttons\": [\n    {\"text\": \"明牌\", \"color\": \"blue\", \"x\": 350, \"y\": 550},\n    {\"text\": \"提示\", \"color\": \"gold\", \"x\": 550, \"y\": 550},\n    {\"text\": \"出牌\", \"color\": \"gold\", \"x\": 700, \"y\": 550}\n  ],\n  \"hand_cards\": [\n    {\"suit\": \"joker\", \"value\": \"big_joker\", \"x\": 160, \"y\": 780"
+}

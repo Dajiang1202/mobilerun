@@ -1,0 +1,60 @@
+{
+  "raw_response": "```json\n{\n  \"phase\": \"playing\",\n  \"buttons\": [\n    {\"text\": \"不出\", \"enabled\": true, \"x\": 298, \"y\": 517},\n    {\"text\": \"提示\", \"enabled\": false, \"x\": 503, \"y\": 517},\n    {\"text\": \"出牌\", \"enabled\": true, \"x\": 672, \"y\": 517}\n  ],\n  \"hand_cards\": [\n    {\"suit\": \"diamonds\", \"value\": \"K\", \"x\": 390, \"y\": 720},\n    {\"suit\": \"clubs\", \"value\": \"8\", \"x\": 440, \"y\": 720},\n    {\"suit\": \"spades\", \"value\": \"6\", \"x\": 490, \"y\": 720},\n    {\"suit\": \"spades\", \"value\": \"3\", \"x\": 540, \"y\": 720},\n    {\"suit\": \"diamonds\", \"value\": \"3\", \"x\": 590, \"y\": 720}\n  ],\n  \"last_played\": []\n}\n```",
+  "parsed": {
+    "phase": "playing",
+    "buttons": [
+      {
+        "text": "不出",
+        "enabled": true,
+        "x": 298,
+        "y": 517
+      },
+      {
+        "text": "提示",
+        "enabled": false,
+        "x": 503,
+        "y": 517
+      },
+      {
+        "text": "出牌",
+        "enabled": true,
+        "x": 672,
+        "y": 517
+      }
+    ],
+    "hand_cards": [
+      {
+        "suit": "diamonds",
+        "value": "K",
+        "x": 390,
+        "y": 720
+      },
+      {
+        "suit": "clubs",
+        "value": "8",
+        "x": 440,
+        "y": 720
+      },
+      {
+        "suit": "spades",
+        "value": "6",
+        "x": 490,
+        "y": 720
+      },
+      {
+        "suit": "spades",
+        "value": "3",
+        "x": 540,
+        "y": 720
+      },
+      {
+        "suit": "diamonds",
+        "value": "3",
+        "x": 590,
+        "y": 720
+      }
+    ],
+    "last_played": []
+  },
+  "latency_ms": 0
+}

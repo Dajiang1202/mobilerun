@@ -1,0 +1,8 @@
+{
+  "file": "D:\\gameauto\\mobilerun\\gameauto\\core\\capture\\scrcpy\\captured\\shot_0017.png",
+  "screen_type": "waiting",
+  "buttons": [],
+  "hand_cards_count": 2,
+  "actions": [],
+  "vlm_raw": "```json\n{\n  \"screen_type\": \"waiting\",\n  \"buttons\": [],\n  \"hand_cards\": [\n    {\"suit\": \"spades\", \"value\": \"5\", \"x\": 450, \"y\": 750},\n    {\"suit\": \"clubs\", \"value\": \"5\", \"x\": 510, \"y\": 750}\n  ]\n}\n```"
+}

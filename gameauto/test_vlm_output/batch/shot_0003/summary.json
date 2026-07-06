@@ -1,0 +1,8 @@
+{
+  "file": "D:\\gameauto\\mobilerun\\gameauto\\core\\capture\\scrcpy\\captured\\shot_0003.png",
+  "screen_type": "waiting",
+  "buttons": [],
+  "hand_cards_count": 17,
+  "actions": [],
+  "vlm_raw": "```json\n{\n  \"screen_type\": \"waiting\",\n  \"buttons\": [],\n  \"hand_cards\": [\n    {\"suit\": \"joker\", \"value\": \"small_joker\", \"x\": 240, \"y\": 760},\n    {\"suit\": \"joker\", \"value\": \"big_joker\", \"x\": 280, \"y\": 760},\n    {\"suit\": \"spades\", \"value\": \"2\", \"x\": 320, \"y\": 760},\n    {\"suit\": \"spades\", \"value\": \"A\", \"x\": 360, \"y\": 760},\n    {\"suit\": \"spades\", \"value\": \"K\", \"x\": 400, \"y\": 760},\n    {\"suit\": \"clubs\", \"value\": \"K\", \"x\": 440, \"y\": 760},\n    {\"suit\": \"diamonds\", \"value\": \"Q\", \"x\": 480, \"y\": 760},\n    "
+}

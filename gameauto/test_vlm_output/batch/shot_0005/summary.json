@@ -1,0 +1,34 @@
+{
+  "file": "D:\\gameauto\\mobilerun\\gameauto\\core\\capture\\scrcpy\\captured\\shot_0005.png",
+  "screen_type": "playing",
+  "buttons": [
+    {
+      "text": "加倍×2",
+      "color": "gold",
+      "x": 320,
+      "y": 550
+    },
+    {
+      "text": "超级加倍×4",
+      "color": "gold",
+      "x": 470,
+      "y": 550
+    },
+    {
+      "text": "不加倍",
+      "color": "blue",
+      "x": 680,
+      "y": 550
+    }
+  ],
+  "hand_cards_count": 20,
+  "actions": [
+    {
+      "type": "tap",
+      "x": 680.0,
+      "y": 550.0,
+      "desc": "Click '不加倍'"
+    }
+  ],
+  "vlm_raw": "```json\n{\n  \"screen_type\": \"playing\",\n  \"buttons\": [\n    {\"text\": \"加倍×2\", \"color\": \"gold\", \"x\": 320, \"y\": 550},\n    {\"text\": \"超级加倍×4\", \"color\": \"gold\", \"x\": 470, \"y\": 550},\n    {\"text\": \"不加倍\", \"color\": \"blue\", \"x\": 680, \"y\": 550}\n  ],\n  \"hand_cards\": [\n    {\"suit\": \"joker\", \"value\": \"small_joker\", \"x\": 165, \"y\": 750},\n    {\"suit\": \"joker\", \"value\": \"big_joker\", \"x\": 205, \"y\": 750},\n    {\"suit\": \"spades\", \"value\": \"2\", \"x\": 245, \"y\": 750},\n    {\"suit\": \"clubs\", \"value\": \"2\", \"x\": 285, \"y\": 750},\n"
+}

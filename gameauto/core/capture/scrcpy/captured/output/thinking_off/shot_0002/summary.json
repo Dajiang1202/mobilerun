@@ -1,0 +1,32 @@
+{
+  "file": "shot_0002",
+  "label": "thinking_off",
+  "model": "qwen3.6-plus",
+  "latency_ms": 4170.0,
+  "screen_type": "start",
+  "buttons": [
+    {
+      "text": "明牌开始x5",
+      "color": "blue",
+      "x": 400,
+      "y": 570
+    },
+    {
+      "text": "开始游戏",
+      "color": "gold",
+      "x": 590,
+      "y": 570
+    }
+  ],
+  "hand_cards_count": 0,
+  "hand_cards_first5": [],
+  "actions": [
+    {
+      "type": "tap",
+      "x": 590.0,
+      "y": 570.0,
+      "desc": "Click '开始游戏'"
+    }
+  ],
+  "vlm_raw_preview": "{\n  \"screen_type\": \"start\",\n  \"buttons\": [\n    {\"text\": \"明牌开始x5\", \"color\": \"blue\", \"x\": 400, \"y\": 570},\n    {\"text\": \"开始游戏\", \"color\": \"gold\", \"x\": 590, \"y\": 570}\n  ],\n  \"hand_cards\": []\n}"
+}

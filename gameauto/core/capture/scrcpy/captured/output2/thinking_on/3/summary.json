@@ -1,0 +1,37 @@
+{
+  "file": "3",
+  "label": "thinking_on",
+  "model": "qwen3.6-plus",
+  "latency_ms": 108868.0,
+  "board": {
+    "rows": 9,
+    "cols": 9,
+    "tiles_count": 81
+  },
+  "swaps_found": 2,
+  "swaps": [
+    {
+      "desc": "Swap yellow_chick at (0,1) with pink_fox at (1,1) — vertical 3-match",
+      "from": [
+        202,
+        396
+      ],
+      "to": [
+        202,
+        444
+      ]
+    },
+    {
+      "desc": "Swap pink_fox at (0,2) with brown_bear at (1,2) — vertical 3-match",
+      "from": [
+        301,
+        396
+      ],
+      "to": [
+        301,
+        444
+      ]
+    }
+  ],
+  "vlm_raw_preview": "```json\n{\n  \"rows\": 9,\n  \"cols\": 9,\n  \"board_left\": 53,\n  \"board_top\": 372,\n  \"board_right\": 945,\n  \"board_bottom\": 807,\n  \"tiles\": [\n    [\"green_rabbit\", \"yellow_chick\", \"pink_fox\", \"pink_fox\", \"brown_bear\", \"green_rabbit\", \"yellow_chick\", \"pink_fox\", \"pink_fox\"],\n    [\"pink_fox\", \"pink_fox\", \"brow"
+}

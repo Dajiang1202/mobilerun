@@ -1,0 +1,287 @@
+{
+  "total": 28,
+  "stats": {
+    "start": 6,
+    "waiting": 6,
+    "playing": 16,
+    "unknown": 0,
+    "with_actions": 13,
+    "no_actions": 15
+  },
+  "results": [
+    {
+      "file": "shot_0001.png",
+      "screen_type": "start",
+      "buttons": [],
+      "actions": []
+    },
+    {
+      "file": "shot_0002.png",
+      "screen_type": "start",
+      "buttons": [
+        "明牌开始x5",
+        "开始游戏"
+      ],
+      "actions": [
+        "Click '开始游戏'"
+      ]
+    },
+    {
+      "file": "shot_0003.png",
+      "screen_type": "waiting",
+      "buttons": [],
+      "actions": []
+    },
+    {
+      "file": "shot_0004.png",
+      "screen_type": "playing",
+      "buttons": [
+        "叫地主",
+        "不叫"
+      ],
+      "actions": [
+        "Click '不叫'"
+      ]
+    },
+    {
+      "file": "shot_0005.png",
+      "screen_type": "playing",
+      "buttons": [
+        "加倍×2",
+        "超级加倍×4",
+        "不加倍"
+      ],
+      "actions": [
+        "Click '不加倍'"
+      ]
+    },
+    {
+      "file": "shot_0006.png",
+      "screen_type": "playing",
+      "buttons": [
+        "明牌",
+        "23",
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0007.png",
+      "screen_type": "waiting",
+      "buttons": [],
+      "actions": []
+    },
+    {
+      "file": "shot_0008.png",
+      "screen_type": "playing",
+      "buttons": [
+        "不出",
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0009.png",
+      "screen_type": "playing",
+      "buttons": [
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0010.png",
+      "screen_type": "playing",
+      "buttons": [
+        "不出",
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0011.png",
+      "screen_type": "playing",
+      "buttons": [
+        "不出",
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0012.png",
+      "screen_type": "playing",
+      "buttons": [
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0013.png",
+      "screen_type": "playing",
+      "buttons": [
+        "不出",
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0014.png",
+      "screen_type": "playing",
+      "buttons": [
+        "不出",
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0015.png",
+      "screen_type": "playing",
+      "buttons": [
+        "要不起"
+      ],
+      "actions": [
+        "Click '要不起'"
+      ]
+    },
+    {
+      "file": "shot_0016.png",
+      "screen_type": "playing",
+      "buttons": [
+        "不出",
+        "提示",
+        "出牌"
+      ],
+      "actions": [
+        "Click '提示'",
+        "Click '出牌'"
+      ]
+    },
+    {
+      "file": "shot_0017.png",
+      "screen_type": "waiting",
+      "buttons": [],
+      "actions": []
+    },
+    {
+      "file": "shot_0018.png",
+      "screen_type": "start",
+      "buttons": [
+        "忽略",
+        "查看"
+      ],
+      "actions": []
+    },
+    {
+      "file": "shot_0019.png",
+      "screen_type": "start",
+      "buttons": [
+        "明牌开始×5",
+        "继续游戏"
+      ],
+      "actions": []
+    },
+    {
+      "file": "shot_0020.png",
+      "screen_type": "start",
+      "buttons": [
+        "暴击领豆"
+      ],
+      "actions": []
+    },
+    {
+      "file": "shot_0021.png",
+      "screen_type": "start",
+      "buttons": [
+        "明牌开始×5",
+        "继续游戏"
+      ],
+      "actions": []
+    },
+    {
+      "file": "shot_0022.png",
+      "screen_type": "waiting",
+      "buttons": [],
+      "actions": []
+    },
+    {
+      "file": "shot_0023.png",
+      "screen_type": "playing",
+      "buttons": [
+        "叫地主",
+        "不叫"
+      ],
+      "actions": []
+    },
+    {
+      "file": "shot_0024.png",
+      "screen_type": "waiting",
+      "buttons": [],
+      "actions": []
+    },
+    {
+      "file": "shot_0025.png",
+      "screen_type": "playing",
+      "buttons": [
+        "明牌",
+        "提示",
+        "出牌"
+      ],
+      "actions": []
+    },
+    {
+      "file": "shot_0026.png",
+      "screen_type": "playing",
+      "buttons": [
+        "提示",
+        "出牌"
+      ],
+      "actions": []
+    },
+    {
+      "file": "shot_0027.png",
+      "screen_type": "waiting",
+      "buttons": [],
+      "actions": []
+    },
+    {
+      "file": "shot_0028.png",
+      "screen_type": "playing",
+      "buttons": [
+        "提示",
+        "出牌"
+      ],
+      "actions": []
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "phase": "playing",
+  "actions": [
+    {
+      "type": "tap",
+      "x": 540.0,
+      "y": 720.0,
+      "desc": "Click S3"
+    },
+    {
+      "type": "tap",
+      "x": 590.0,
+      "y": 720.0,
+      "desc": "Click D3"
+    },
+    {
+      "type": "tap",
+      "x": 672.0,
+      "y": 517.0,
+      "desc": "Click '出牌' (play)"
+    }
+  ]
+}

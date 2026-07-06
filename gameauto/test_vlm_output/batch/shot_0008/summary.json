@@ -1,0 +1,40 @@
+{
+  "file": "D:\\gameauto\\mobilerun\\gameauto\\core\\capture\\scrcpy\\captured\\shot_0008.png",
+  "screen_type": "playing",
+  "buttons": [
+    {
+      "text": "不出",
+      "color": "blue",
+      "x": 345,
+      "y": 545
+    },
+    {
+      "text": "提示",
+      "color": "gold",
+      "x": 535,
+      "y": 545
+    },
+    {
+      "text": "出牌",
+      "color": "gold",
+      "x": 655,
+      "y": 545
+    }
+  ],
+  "hand_cards_count": 14,
+  "actions": [
+    {
+      "type": "tap",
+      "x": 535.0,
+      "y": 545.0,
+      "desc": "Click '提示'"
+    },
+    {
+      "type": "tap",
+      "x": 655.0,
+      "y": 545.0,
+      "desc": "Click '出牌'"
+    }
+  ],
+  "vlm_raw": "```json\n{\n  \"screen_type\": \"playing\",\n  \"buttons\": [\n    {\"text\": \"不出\", \"color\": \"blue\", \"x\": 345, \"y\": 545},\n    {\"text\": \"提示\", \"color\": \"gold\", \"x\": 535, \"y\": 545},\n    {\"text\": \"出牌\", \"color\": \"gold\", \"x\": 655, \"y\": 545}\n  ],\n  \"hand_cards\": [\n    {\"suit\": \"joker\", \"value\": \"small_joker\", \"x\": 240, \"y\": 765},\n    {\"suit\": \"joker\", \"value\": \"big_joker\", \"x\": 280, \"y\": 765},\n    {\"suit\": \"spades\", \"value\": \"2\", \"x\": 320, \"y\": 765},\n    {\"suit\": \"clubs\", \"value\": \"2\", \"x\": 360, \"y\": 765},\n    {\"s"
+}

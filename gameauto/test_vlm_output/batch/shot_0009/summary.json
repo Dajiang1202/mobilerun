@@ -1,0 +1,34 @@
+{
+  "file": "D:\\gameauto\\mobilerun\\gameauto\\core\\capture\\scrcpy\\captured\\shot_0009.png",
+  "screen_type": "playing",
+  "buttons": [
+    {
+      "text": "提示",
+      "color": "gold",
+      "x": 405,
+      "y": 550
+    },
+    {
+      "text": "出牌",
+      "color": "gold",
+      "x": 595,
+      "y": 550
+    }
+  ],
+  "hand_cards_count": 12,
+  "actions": [
+    {
+      "type": "tap",
+      "x": 405.0,
+      "y": 550.0,
+      "desc": "Click '提示'"
+    },
+    {
+      "type": "tap",
+      "x": 595.0,
+      "y": 550.0,
+      "desc": "Click '出牌'"
+    }
+  ],
+  "vlm_raw": "```json\n{\n  \"screen_type\": \"playing\",\n  \"buttons\": [\n    {\"text\": \"提示\", \"color\": \"gold\", \"x\": 405, \"y\": 550},\n    {\"text\": \"出牌\", \"color\": \"gold\", \"x\": 595, \"y\": 550}\n  ],\n  \"hand_cards\": [\n    {\"suit\": \"spades\", \"value\": \"2\", \"x\": 275, \"y\": 750},\n    {\"suit\": \"clubs\", \"value\": \"2\", \"x\": 325, \"y\": 750},\n    {\"suit\": \"spades\", \"value\": \"A\", \"x\": 375, \"y\": 750},\n    {\"suit\": \"spades\", \"value\": \"K\", \"x\": 425, \"y\": 750},\n    {\"suit\": \"clubs\", \"value\": \"K\", \"x\": 475, \"y\": 750},\n    {\"suit\": \"diamonds\""
+}

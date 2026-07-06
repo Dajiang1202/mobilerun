@@ -1,0 +1,43 @@
+{
+  "file": "shot_0007",
+  "label": "thinking_on",
+  "model": "qwen3.6-plus",
+  "latency_ms": 79517.0,
+  "screen_type": "waiting",
+  "buttons": [],
+  "hand_cards_count": 14,
+  "hand_cards_first5": [
+    {
+      "suit": "j",
+      "value": "big_joker",
+      "x": 240,
+      "y": 900
+    },
+    {
+      "suit": "j",
+      "value": "small_joker",
+      "x": 290,
+      "y": 900
+    },
+    {
+      "suit": "s",
+      "value": "2",
+      "x": 340,
+      "y": 900
+    },
+    {
+      "suit": "c",
+      "value": "2",
+      "x": 390,
+      "y": 900
+    },
+    {
+      "suit": "s",
+      "value": "A",
+      "x": 440,
+      "y": 900
+    }
+  ],
+  "actions": [],
+  "vlm_raw_preview": "```json\n{\n  \"screen_type\": \"waiting\",\n  \"buttons\": [],\n  \"hand_cards\": [\n    {\"suit\": \"joker\", \"value\": \"big_joker\", \"x\": 240, \"y\": 900},\n    {\"suit\": \"joker\", \"value\": \"small_joker\", \"x\": 290, \"y\": 900},\n    {\"suit\": \"spades\", \"value\": \"2\", \"x\": 340, \"y\": 900},\n    {\"suit\": \"clubs\", \"value\": \"2\", \""
+}
