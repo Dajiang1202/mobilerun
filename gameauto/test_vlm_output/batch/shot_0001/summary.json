@@ -1,8 +1,0 @@
-{
-  "file": "D:\\gameauto\\mobilerun\\gameauto\\core\\capture\\scrcpy\\captured\\shot_0001.png",
-  "screen_type": "start",
-  "buttons": [],
-  "hand_cards_count": 0,
-  "actions": [],
-  "vlm_raw": "```json\n{\n  \"screen_type\": \"start\",\n  \"buttons\": [],\n  \"hand_cards\": []\n}\n```"
-}
