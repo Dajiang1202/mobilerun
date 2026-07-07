@@ -154,7 +154,10 @@ def _load_rois() -> dict:
 
 
 def _ocr_image(crop_bgr: np.ndarray) -> tuple[str, int]:
-    """POST 一个 BGR 小图到 OCR 服务, 返回 (combined_text, latency_ms)。"""
+    """POST 一个 BGR 小图到 **本地** OCR 服务 (_OCR_URL), 返回 (combined_text, latency_ms)。
+
+    小 ROI 专用: gold/shop/stage/timer 等, 本地 35ms 无网络延迟。
+    """
     ok, buf = cv2.imencode(".png", crop_bgr)
     if not ok:
         return "", 0
@@ -171,6 +174,34 @@ def _ocr_image(crop_bgr: np.ndarray) -> tuple[str, int]:
             return data.get("combined_text", ""), int(data.get("latency_ms", 0))
     except Exception as e:
         return f"<err:{e}>", 0
+
+
+def _ocr_full_image(frame_bgr: np.ndarray):
+    """POST 整帧到 **远端** OCR 服务 (_OCR_FULL_URL), 返回 OcrResult。
+
+    全图专用: 找按钮/结算/海克斯/观战血量, 远端GPU推理快。
+    """
+    from gameauto.skills.tft.pregame import OcrResult, OcrHit
+    ok, buf = cv2.imencode(".png", frame_bgr)
+    if not ok:
+        return OcrResult()
+    b64 = base64.b64encode(buf.tobytes()).decode()
+    payload = json.dumps({"image": b64, "threshold": 0.5}).encode()
+    req = urllib.request.Request(
+        _OCR_FULL_URL, data=payload, headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        hits = [
+            OcrHit(text=t, conf=c, box=b)
+            for t, c, b in zip(data.get("texts", []), data.get("confidences", []),
+                               data.get("boxes", []))
+            if b
+        ]
+        return OcrResult(hits=hits, latency_ms=int(data.get("latency_ms", 0)))
+    except Exception:
+        return OcrResult()
 
 
 def ocr_perceive(frame_bgr: np.ndarray) -> dict:
@@ -600,7 +631,7 @@ def text_perceive(frame_bgr: np.ndarray) -> dict:
     drop_region = _flat_roi(_load_rois(), "ocr", "drop_region")  # None=全图
     ok, buf = cv2.imencode(".png", frame_bgr)
     png = buf.tobytes() if ok else b""
-    res = _ocr_full_png(png)
+    res = _ocr_full_image(frame_bgr)   # 全图走远端 (_OCR_FULL_URL)
     overlays, details, drops = [], [], []
 
     def _in_region(cx, cy):
