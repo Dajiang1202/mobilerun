@@ -121,7 +121,9 @@ def tft_decide(state: dict) -> list[Action]:
 # 注意: 用 127.0.0.1 而非 localhost —— Windows→WSL2 时 localhost 会先解析到 IPv6
 # (::1), 服务未监听 IPv6, 连接超时 ~15s 才回退, 单请求从 29ms 劣化到 15s。
 
+# 小 ROI OCR: 本地(35ms, 无网络延迟); 全图 OCR: 远端GPU(生产用V100)
 _OCR_URL = os.environ.get("OCR_URL", "http://127.0.0.1:8089/ocr")
+_OCR_FULL_URL = os.environ.get("OCR_FULL_URL", _OCR_URL)  # 全图OCR, 默认同本地
 _OCR_POOL = ThreadPoolExecutor(max_workers=8)
 _ROIS_CACHE: dict | None = None
 # 要 OCR 的 ROI: (输出键, rois.yaml 中的取值路径)
