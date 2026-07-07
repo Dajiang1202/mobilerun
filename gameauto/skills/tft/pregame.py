@@ -41,7 +41,9 @@ logger = logging.getLogger("gameauto.tft.pregame")
 
 # 全图 OCR: 远端GPU(生产用V100), 默认同本地; 小ROI走 run_tft_replay._OCR_URL(本地)
 import os
-OCR_URL = os.environ.get("OCR_FULL_URL", "http://127.0.0.1:8089/ocr")
+# 全图OCR走远端GPU (_OCR_FULL_URL), 没配则回退到本地小ROI的 _OCR_URL
+_OCR_FULL_URL = os.environ.get("OCR_FULL_URL", "")
+OCR_URL = _OCR_FULL_URL or os.environ.get("OCR_URL", "http://127.0.0.1:8089/ocr")
 OCR_INTERVAL = 3.0                        # MATCHING 时每 N 秒 OCR 一次
 ACCEPT_TIMEOUT = 15.0                     # 点接受后等多久判成败
 MATCH_TIMEOUT = 45.0                      # 点开始游戏后等多久「接受」, 超时回 LOBBY 重点

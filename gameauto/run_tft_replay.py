@@ -47,6 +47,11 @@ from gameauto.tools.replay_driver import (
 # 视频文件路径 (30fps TFT 录像)
 VIDEO_PATH = r"D:\gameauto\mobilerun\SVID_20260604_154906_1.mp4"
 
+# OCR 服务: 小ROI走本地 / 全图走远端 (默认都本地, 生产设远端IP)
+# 留空则读环境变量 OCR_URL / OCR_FULL_URL
+OCR_URL_LOCAL = ""    # 小图(gold/shop/stage)本地OCR, 默认 http://127.0.0.1:8089/ocr
+OCR_URL_REMOTE = ""   # 全图(按钮/海克斯/结算)远端OCR, 默认同本地
+
 # 感知 / 决策后端 (见下方 PERCEIVE_BACKENDS / DECIDE_BACKENDS 的可选键)
 PERCEIVE = "full"  # "stub" | "ocr" | "champions" | "full" | "adapter"
 DECIDE = "tft"       # "stub" | "tft" | "adapter"
@@ -122,6 +127,11 @@ def tft_decide(state: dict) -> list[Action]:
 # (::1), 服务未监听 IPv6, 连接超时 ~15s 才回退, 单请求从 29ms 劣化到 15s。
 
 # 小 ROI OCR: 本地(35ms, 无网络延迟); 全图 OCR: 远端GPU(生产用V100)
+# 优先用配置区常量, 留空则读环境变量
+if OCR_URL_LOCAL:
+    os.environ.setdefault("OCR_URL", OCR_URL_LOCAL)
+if OCR_URL_REMOTE:
+    os.environ.setdefault("OCR_FULL_URL", OCR_URL_REMOTE)
 _OCR_URL = os.environ.get("OCR_URL", "http://127.0.0.1:8089/ocr")
 _OCR_FULL_URL = os.environ.get("OCR_FULL_URL", _OCR_URL)  # 全图OCR, 默认同本地
 _OCR_POOL = ThreadPoolExecutor(max_workers=8)

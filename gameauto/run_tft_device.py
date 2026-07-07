@@ -26,32 +26,22 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from gameauto.core.capture.scrcpy.bridge import screenshot_bgr
-from gameauto.core.capture.scrcpy import ScrcpyCapture as Capture
-from gameauto.core.input.scrcpy import ScrcpyInput as Input
-from gameauto.core.orchestration.base import Action
-from gameauto.core.perception.cv.template_match import TemplateMatchTask
-from gameauto.skills.tft.actions import TftActions
-from gameauto.skills.tft.phase import PhaseTracker
-from gameauto.skills.tft.pregame import (
-    PreGameDriver, make_tap_fn, ocr_full, START_KEYWORDS, hit_to_1000,
-)
-from gameauto.tools.cv_text import put_text_zh, overlay_text, overlay_multi
-from gameauto.utils.coordinate import to_normalized
-
-# 复用回放工作台里写好的感知后端 (full_perceive = 血条 + OCR)
-from gameauto.run_tft_replay import (
-    full_perceive, decide_perceive, detect_items,
-    _load_rois, _flat_roi, _ocr_image,
-)
-
 # ═══════════════════════════════════════════════════════════════════════
-#  配置区
+#  配置区 (必须在 OCR 相关 import 之前, 模块加载时读 env)
 # ═══════════════════════════════════════════════════════════════════════
 
 DEVICE_SERIAL = "4NZ0225613000015"   # hdc list targets 查看
 
 MODE = "auto"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 | "auto"=自动打一局
+
+# OCR 服务: 小ROI走本地 / 全图走远端 (默认都本地, 生产设远端IP)
+# 留空则读环境变量 OCR_URL / OCR_FULL_URL
+OCR_URL_LOCAL = ""    # 小图(gold/shop/stage)本地OCR, 默认 http://127.0.0.1:8089/ocr
+OCR_URL_REMOTE = ""   # 全图(按钮/海克斯/结算)远端OCR, 默认同本地
+if OCR_URL_LOCAL:
+    os.environ["OCR_URL"] = OCR_URL_LOCAL
+if OCR_URL_REMOTE:
+    os.environ["OCR_FULL_URL"] = OCR_URL_REMOTE
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/
@@ -69,6 +59,27 @@ TICK_INTERVAL = 0.5    # 每帧间隔(s)
 SAVE_DIR = str(_HERE / "logs")   # 截图/识别结果/调试日志存这
 DEBUG_CLICK = True              # 开: 每次点击前后存原图+识别结果, 打意图log
 _shot_counter = 0
+
+# ── OCR-aware imports (必须在配置区 env 设置之后) ──────────────────────────
+from gameauto.core.capture.scrcpy.bridge import screenshot_bgr
+from gameauto.core.capture.scrcpy import ScrcpyCapture as Capture
+from gameauto.core.input.scrcpy import ScrcpyInput as Input
+from gameauto.core.orchestration.base import Action
+from gameauto.core.perception.cv.template_match import TemplateMatchTask
+from gameauto.skills.tft.actions import TftActions
+from gameauto.skills.tft.phase import PhaseTracker
+from gameauto.skills.tft.pregame import (
+    PreGameDriver, make_tap_fn, START_KEYWORDS, hit_to_1000, ocr_full,
+)
+from gameauto.tools.cv_text import put_text_zh, overlay_text, overlay_multi
+from gameauto.utils.coordinate import to_normalized
+
+# 复用回放工作台里写好的感知后端 (full_perceive = 血条 + OCR)
+from gameauto.run_tft_replay import (
+    full_perceive, decide_perceive, detect_items, _ocr_full_image,
+    _load_rois, _flat_roi, _ocr_image,
+)
+from gameauto.skills.tft.pregame import OcrResult
 
 def save_screenshot(frame, tag: str = "") -> str:
     """保存截图到 SAVE_DIR/screenshots/, 返回路径。"""
@@ -522,7 +533,7 @@ def _detect_result(frame) -> bool:
     ok, buf = cv2.imencode(".png", frame)
     if not ok:
         return False
-    res = ocr_full(buf.tobytes())
+    res = _ocr_full_image(frame)
     return any(re.search(r"第.{0,3}名", h.text) for h in res.hits)
 
 
@@ -822,7 +833,7 @@ async def _do_spectate(inp: Input, fw: int, fh: int) -> None:
         ok, buf = cv2.imencode(".png", f)
         if not ok:
             continue
-        res = ocr_full(buf.tobytes())
+        res = _ocr_full_image(f)
         if res.find(START_KEYWORDS):
             print("[观战] 回到大厅, 结束观战")
             return
@@ -848,7 +859,7 @@ async def _do_spectate(inp: Input, fw: int, fh: int) -> None:
         if not ok:
             await asyncio.sleep(5)
             continue
-        res = ocr_full(buf.tobytes())
+        res = _ocr_full_image(f)
         if res.find(START_KEYWORDS):
             print("[观战] 回到大厅, 结束观战")
             return
@@ -932,10 +943,12 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
 
     # 0) 大厅 → 先匹配进游戏 (frame_wh 用帧输出尺寸)
     png0 = grab_png("检测大厅...")
-    if png0 and ocr_full(png0).find(START_KEYWORDS):
-        print("[auto] 在大厅, 先跑匹配")
-        await PreGameDriver(make_tap_fn(inp), log=lambda m, *a: print(m)).run(
-            lambda: grab_png("匹配中..."), frame_wh=(fw, fh))
+    if png0:
+        f0 = cv2.imdecode(np.frombuffer(png0, np.uint8), cv2.IMREAD_COLOR)
+        if f0 is not None and _ocr_full_image(f0).find(START_KEYWORDS):
+            print("[auto] 在大厅, 先跑匹配")
+            await PreGameDriver(make_tap_fn(inp), log=lambda m, *a: print(m)).run(
+                lambda: grab_png("匹配中..."), frame_wh=(fw, fh))
 
     # 1) 游戏内循环
     last_full_check = 0.0
@@ -1040,7 +1053,7 @@ async def auto(capture: Capture, inp: Input, tm) -> None:
             last_full_check = now
             ok, buf = cv2.imencode(".png", frame)
             if ok:
-                res = ocr_full(buf.tobytes())
+                res = _ocr_full_image(frame)
                 txt = res.combined_text
                 if "您获得了" in txt:
                     # 我方出局 → 进入观战 (不退出, 持续看到回大厅)
