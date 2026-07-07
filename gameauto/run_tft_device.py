@@ -421,7 +421,7 @@ async def _cmd_iterate(builder: TftActions, inp: Input, rois, fw, fh) -> None:
                 f3 = screenshot_bgr()
                 if f3 is not None:
                     crop = f3[T:B, L:R].copy()
-                    name = _ocr_image(crop)[0].strip()
+                    name = _ocr_image(crop, roi_name=f"champion_{label}{i}")[0].strip()
                     print(f"    识别: {name!r}")
                     d = Path(SAVE_DIR) / "champions"
                     d.mkdir(parents=True, exist_ok=True)
@@ -518,7 +518,7 @@ def _ocr_stage_timer(frame, rois, w, h):
     sroi = _flat_roi(rois, "ocr", "stage")
     if sroi:
         L, T, R, B = int(sroi[0]*w), int(sroi[1]*h), int(sroi[2]*w), int(sroi[3]*h)
-        raw = _ocr_image(frame[T:B, L:R])[0]
+        raw = _ocr_image(frame[T:B, L:R], roi_name="stage")[0]
         m = re.search(r"\d+\s*[-\-–—]\s*\d+", raw)
         stage_txt = m.group().replace(" ", "").replace("–", "-").replace("—", "-") if m else ""
     else:
@@ -526,7 +526,7 @@ def _ocr_stage_timer(frame, rois, w, h):
     troi = _flat_roi(rois, "ocr", "timer")
     if troi:
         L, T, R, B = int(troi[0]*w), int(troi[1]*h), int(troi[2]*w), int(troi[3]*h)
-        m = re.search(r"\d+", _ocr_image(frame[T:B, L:R])[0])
+        m = re.search(r"\d+", _ocr_image(frame[T:B, L:R], roi_name="timer")[0])
         timer_int = int(m.group()) if m else None
     return (stage_txt or None), timer_int
 
@@ -546,7 +546,7 @@ def _shop_open(frame, rois, fw, fh) -> bool:
     if not rroi:
         return False
     L, T, R, B = int(rroi[0]*fw), int(rroi[1]*fh), int(rroi[2]*fw), int(rroi[3]*fh)
-    return "刷新" in _ocr_image(frame[T:B, L:R])[0]
+    return "刷新" in _ocr_image(frame[T:B, L:R], roi_name="refresh_btn")[0]
 
 
 def _shop_visible(frame, rois, fw, fh) -> bool:
@@ -556,7 +556,7 @@ def _shop_visible(frame, rois, fw, fh) -> bool:
         if not roi:
             continue
         L, T, R, B = int(roi[0]*fw), int(roi[1]*fh), int(roi[2]*fw), int(roi[3]*fh)
-        if kw in _ocr_image(frame[T:B, L:R])[0]:
+        if kw in _ocr_image(frame[T:B, L:R], roi_name=key)[0]:
             return True
     return False
 
@@ -697,7 +697,7 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
                 f3 = screenshot_bgr()
                 if f3 is not None:
                     crop = f3[T:B, L:R].copy()
-                    name = _ocr_image(crop)[0].strip()
+                    name = _ocr_image(crop, roi_name=f"champion_{label}{i}")[0].strip()
                     print(f"    识别: {name!r}")
                     save_dir = Path(SAVE_DIR) / "champions"
                     save_dir.mkdir(parents=True, exist_ok=True)
@@ -727,7 +727,7 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
         cur_gold = None
         if groi:
             L, T, R, B = int(groi[0]*fw), int(groi[1]*fh), int(groi[2]*fw), int(groi[3]*fh)
-            gm = re.search(r"\d+", _ocr_image(f_shop[T:B, L:R])[0])
+            gm = re.search(r"\d+", _ocr_image(f_shop[T:B, L:R], roi_name="gold")[0])
             cur_gold = int(gm.group()) if gm else None
         if cur_gold is not None and cur_gold >= 30:
             print(f"  金币{cur_gold}≥30, 先刷新商店")
@@ -742,7 +742,7 @@ async def _do_planning(frame, st, builder: TftActions, inp: Input, rois, fw, fh)
             sroi = _flat_roi(rois, "ocr", f"shop{i}")
             if sroi:
                 L, T, R, B = int(sroi[0]*fw), int(sroi[1]*fh), int(sroi[2]*fw), int(sroi[3]*fh)
-                t = _ocr_image(f_shop[T:B, L:R])[0].strip()
+                t = _ocr_image(f_shop[T:B, L:R], roi_name=f"shop{i}")[0].strip()
                 shop_texts.append(t)
             else:
                 shop_texts.append("")

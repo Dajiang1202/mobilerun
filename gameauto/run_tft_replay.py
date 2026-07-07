@@ -138,7 +138,7 @@ _OCR_URL = os.environ.get("OCR_URL", "http://127.0.0.1:8089/ocr")
 _OCR_FULL_URL = os.environ.get("OCR_FULL_URL", _OCR_URL)  # 全图OCR, 默认同本地
 _OCR_SAVE_DIR: str | None = None
 
-def _ocr_save(crop_bgr, tag: str, latency_ms: int):
+def _ocr_save(crop_bgr, tag: str, latency_ms: int, roi_name: str = ""):
     """SAVE_OCR_IMAGES=True 时, 保存每次OCR调用的输入图到 logs/ocr_debug/。"""
     global _OCR_SAVE_DIR
     if not SAVE_OCR_IMAGES:
@@ -147,7 +147,8 @@ def _ocr_save(crop_bgr, tag: str, latency_ms: int):
         _OCR_SAVE_DIR = str(Path(__file__).parent / "logs" / "ocr_debug")
         Path(_OCR_SAVE_DIR).mkdir(parents=True, exist_ok=True)
     ts = int(time.time() * 1000) % 100000
-    name = f"{tag}_{latency_ms}ms_{ts:05d}.png"
+    label = f"{tag}_{roi_name}" if roi_name else tag
+    name = f"{label}_{latency_ms}ms_{ts:05d}.png"
     cv2.imwrite(str(Path(_OCR_SAVE_DIR) / name), crop_bgr)
 _OCR_POOL = ThreadPoolExecutor(max_workers=8)
 _ROIS_CACHE: dict | None = None
@@ -178,10 +179,11 @@ def _load_rois() -> dict:
     return _ROIS_CACHE
 
 
-def _ocr_image(crop_bgr: np.ndarray) -> tuple[str, int]:
+def _ocr_image(crop_bgr: np.ndarray, roi_name: str = "") -> tuple[str, int]:
     """POST 一个 BGR 小图到 **本地** OCR 服务 (_OCR_URL), 返回 (combined_text, latency_ms)。
 
     小 ROI 专用: gold/shop/stage/timer 等, 本地 35ms 无网络延迟。
+    roi_name: 调试用, SAVE_OCR_IMAGES 时写入文件名。
     """
     ok, buf = cv2.imencode(".png", crop_bgr)
     if not ok:
@@ -197,7 +199,7 @@ def _ocr_image(crop_bgr: np.ndarray) -> tuple[str, int]:
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
             latency = int(data.get("latency_ms", 0))
-            _ocr_save(crop_bgr, "local", latency)
+            _ocr_save(crop_bgr, "local", latency, roi_name)
             return data.get("combined_text", ""), latency
     except Exception as e:
         return f"<err:{e}>", 0
@@ -281,7 +283,7 @@ def ocr_perceive(frame_bgr: np.ndarray) -> dict:
         key, box, crop = it
         if crop.size == 0:
             return key, box, "", 0
-        txt, ms = _ocr_image(crop)
+        txt, ms = _ocr_image(crop, roi_name=key)
         return key, box, txt, ms
 
     results = list(_OCR_POOL.map(_do, items))
@@ -475,7 +477,7 @@ def _ocr_below_bar(bar, frame_bgr: np.ndarray, w: int, h: int) -> str:
     crop_region = frame_bgr[max(0, cy1):max(0, cy2), cx1:cx2]
     if crop_region.size == 0:
         return ""
-    txt, _ = _ocr_image(crop_region)
+    txt, _ = _ocr_image(crop_region, roi_name="hp_bar")
     return txt.strip()
 
 
@@ -707,7 +709,7 @@ def decide_perceive(frame_bgr: np.ndarray) -> dict:
     if refresh_roi:
         L, T, R, B = (int(refresh_roi[0] * w), int(refresh_roi[1] * h),
                       int(refresh_roi[2] * w), int(refresh_roi[3] * h))
-        rtxt, _ = _ocr_image(frame_bgr[T:B, L:R])
+        rtxt, _ = _ocr_image(frame_bgr[T:B, L:R], roi_name="refresh_btn")
     st["shop_open"] = "刷新" in rtxt
     st["refresh_text"] = rtxt
     st["details"] = st.get("details", []) + [
