@@ -38,10 +38,13 @@ MODE = "auto"   # "observe"=M1只看 | "act"=M2交互 | "match"=匹配进游戏 
 # 留空则读环境变量 OCR_URL / OCR_FULL_URL
 OCR_URL_LOCAL = ""    # 小图(gold/shop/stage)本地OCR, 默认 http://127.0.0.1:8089/ocr
 OCR_URL_REMOTE = ""   # 全图(按钮/海克斯/结算)远端OCR, 默认同本地
+SAVE_OCR_IMAGES = True   # 每次OCR调用保存图片到 logs/ocr_debug/ (调试用)
 if OCR_URL_LOCAL:
     os.environ["OCR_URL"] = OCR_URL_LOCAL
 if OCR_URL_REMOTE:
     os.environ["OCR_FULL_URL"] = OCR_URL_REMOTE
+if SAVE_OCR_IMAGES:
+    os.environ["SAVE_OCR_IMAGES"] = "1"
 
 # Scrcpy
 _HERE = Path(__file__).resolve().parent   # gameauto/

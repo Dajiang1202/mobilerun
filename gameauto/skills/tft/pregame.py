@@ -29,7 +29,10 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 import requests
 
@@ -124,7 +127,25 @@ def ocr_full(png_bytes: bytes) -> OcrResult:
         )
         if b  # box 缺失的丢弃
     ]
-    return OcrResult(hits=hits, latency_ms=int(data.get("latency_ms", 0)))
+    latency = int(data.get("latency_ms", 0))
+    _save_ocr_debug(png_bytes, "pregame_remote", latency)
+    return OcrResult(hits=hits, latency_ms=latency)
+
+
+def _save_ocr_debug(png_bytes: bytes, tag: str, latency_ms: int):
+    """保存每次OCR调用的输入图 (env SAVE_OCR_IMAGES=1 时生效)。"""
+    if os.environ.get("SAVE_OCR_IMAGES", "") != "1":
+        return
+    import cv2
+    arr = np.frombuffer(png_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return
+    _dir = Path(__file__).parent.parent.parent / "logs" / "ocr_debug"
+    _dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000) % 100000
+    name = f"{tag}_{latency_ms}ms_{ts:05d}.png"
+    cv2.imwrite(str(_dir / name), img)
 
 
 def _crop_stage_png(png_bytes: bytes) -> bytes:

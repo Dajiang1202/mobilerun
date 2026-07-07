@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import sys
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -65,6 +66,7 @@ TICK_INTERVAL = 0.3  # driver tick 最小间隔(s); 0=尽可能快, 由感知限
 SHOW = True        # 是否显示 cv2 预览窗
 SHOW_DEBUG = False  # 是否显示血条绿色掩膜 debug 窗 (调容差时再开)
 RECORD = False       # 是否落盘 (logs/tft_replay_*/...)
+SAVE_OCR_IMAGES = True  # 每次OCR调用保存图片到 logs/ocr_debug/ (调试用)
 VERBOSE = False      # 打原始 state 全量
 QUIET = False        # 只打 actions
 
@@ -134,6 +136,19 @@ if OCR_URL_REMOTE:
     os.environ.setdefault("OCR_FULL_URL", OCR_URL_REMOTE)
 _OCR_URL = os.environ.get("OCR_URL", "http://127.0.0.1:8089/ocr")
 _OCR_FULL_URL = os.environ.get("OCR_FULL_URL", _OCR_URL)  # 全图OCR, 默认同本地
+_OCR_SAVE_DIR: str | None = None
+
+def _ocr_save(crop_bgr, tag: str, latency_ms: int):
+    """SAVE_OCR_IMAGES=True 时, 保存每次OCR调用的输入图到 logs/ocr_debug/。"""
+    global _OCR_SAVE_DIR
+    if not SAVE_OCR_IMAGES:
+        return
+    if _OCR_SAVE_DIR is None:
+        _OCR_SAVE_DIR = str(Path(__file__).parent / "logs" / "ocr_debug")
+        Path(_OCR_SAVE_DIR).mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000) % 100000
+    name = f"{tag}_{latency_ms}ms_{ts:05d}.png"
+    cv2.imwrite(str(Path(_OCR_SAVE_DIR) / name), crop_bgr)
 _OCR_POOL = ThreadPoolExecutor(max_workers=8)
 _ROIS_CACHE: dict | None = None
 # 要 OCR 的 ROI: (输出键, rois.yaml 中的取值路径)
@@ -181,7 +196,9 @@ def _ocr_image(crop_bgr: np.ndarray) -> tuple[str, int]:
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
-            return data.get("combined_text", ""), int(data.get("latency_ms", 0))
+            latency = int(data.get("latency_ms", 0))
+            _ocr_save(crop_bgr, "local", latency)
+            return data.get("combined_text", ""), latency
     except Exception as e:
         return f"<err:{e}>", 0
 
@@ -209,7 +226,9 @@ def _ocr_full_image(frame_bgr: np.ndarray):
                                data.get("boxes", []))
             if b
         ]
-        return OcrResult(hits=hits, latency_ms=int(data.get("latency_ms", 0)))
+        latency = int(data.get("latency_ms", 0))
+        _ocr_save(frame_bgr, "remote", latency)
+        return OcrResult(hits=hits, latency_ms=latency)
     except Exception:
         return OcrResult()
 
