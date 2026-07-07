@@ -164,9 +164,16 @@ _OCR_KEYS = [
     ("shop4", ["shop", "slots", 4]),
 ]
 
-# 即使标了也跳过 OCR (省算力): 血量/商店开关/结算继续/结算 —— 不影响当前执行。
-# 血量后期影响决策再说; 商店开关靠点 gold 位置; 结算靠每回合后全图OCR。
-_OCR_EXCLUDE = {"hp", "shop_toggle", "continue_btn", "result", "drop_region"}
+# 即使标了也跳过 OCR (只为点击/定位, 不需要识别文字):
+_OCR_EXCLUDE = {
+    "hp", "shop_toggle", "continue_btn", "result", "drop_region",
+    # 以下纯点击点位, 不需要 OCR
+    "own_board", "bench", "home", "equip_btn", "panel_close",
+    "item0", "item1", "item2",
+    "carousel_pick", "augment_pick0", "augment_pick1", "augment_pick2",
+}
+# 只有商店开着才 OCR 的 ROI (先检测 refresh_btn 有"刷新", 才 OCR 这些)
+_OCR_SHOP_ONLY = {"shop0", "shop1", "shop2", "shop3", "shop4", "refresh_btn", "buy_xp_btn"}
 
 
 def _load_rois() -> dict:
@@ -255,7 +262,7 @@ def ocr_perceive(frame_bgr: np.ndarray) -> dict:
     rois = _load_rois()
     h, w = frame_bgr.shape[:2]
 
-    # ROI 解析: ocr: section 优先 (扁平, 排除 _OCR_EXCLUDE), 否则回退到 _OCR_KEYS
+    # ROI 解析: ocr: section 优先 (排除 _OCR_EXCLUDE), 否则回退到 _OCR_KEYS
     ocr_section = rois.get("ocr") if isinstance(rois, dict) else None
     if ocr_section:
         roi_items = [(key, box) for key, box in ocr_section.items()
@@ -268,9 +275,25 @@ def ocr_perceive(frame_bgr: np.ndarray) -> dict:
             return cur
         roi_items = [(key, _resolve(path)) for key, path in _OCR_KEYS]
 
+    # 条件 OCR: 先单独 OCR refresh_btn 判断商店开没开
+    # 商店没开 → shop0-4/refresh/buy_xp 全跳过 (省 7 次 OCR)
+    shop_is_open = True   # 默认开, 保守
+    refresh_item = None
+    for key, roi in roi_items:
+        if key == "refresh_btn":
+            l = int(roi["left"] * w); t = int(roi["top"] * h)
+            r = int(roi["right"] * w); b = int(roi["bottom"] * h)
+            txt, _ = _ocr_image(frame_bgr[t:b, l:r], roi_name="refresh_btn")
+            shop_is_open = "刷新" in txt
+            break
+    if not shop_is_open:
+        roi_items = [(k, r) for k, r in roi_items if k not in _OCR_SHOP_ONLY]
+
     # 算出每个 ROI 的像素框 + 裁剪
     items = []
     for key, roi in roi_items:
+        if key == "refresh_btn" and shop_is_open:
+            continue   # 已经 OCR 过了, 不重复
         try:
             l = int(roi["left"] * w); t = int(roi["top"] * h)
             r = int(roi["right"] * w); b = int(roi["bottom"] * h)
