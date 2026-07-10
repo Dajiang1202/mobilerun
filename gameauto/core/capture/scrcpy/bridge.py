@@ -51,6 +51,8 @@ def init(
     java_home: str = "",
     scale: int = 2,
     max_fps: int = 30,
+    bitrate: int = 0,
+    i_frame_interval: int = 0,
 ) -> None:
     """Start JVM, connect device, begin video stream. Idempotent.
 
@@ -60,6 +62,8 @@ def init(
         java_home: JDK/JRE path (auto-detect if empty).
         scale: Downscale factor. 1=original, 2=half, 3=third, etc.
         max_fps: Frame rate limit (1-60).
+        bitrate: Video bitrate in bps (0=SDK default). 越低越省功耗/带宽。
+        i_frame_interval: I帧间隔(0=SDK default). 越大压缩率越高越省带宽。
     """
     global _jvm_started, _scale, _max_fps
     if _jvm_started:
@@ -67,7 +71,7 @@ def init(
     _scale = max(1, scale)
     _max_fps = max_fps
     _start_jvm(sdk_jar, java_home)
-    _start_device(serial)
+    _start_device(serial, bitrate=bitrate, i_frame_interval=i_frame_interval)
     _start_stream()
     _jvm_started = True
 
@@ -184,10 +188,17 @@ def _start_jvm(sdk_jar: str, java_home: str):
     jpype.startJVM(jvm_path, classpath=[sdk_jar], convertStrings=True)
 
 
-def _start_device(serial: str):
+def _start_device(serial: str, bitrate: int = 0, i_frame_interval: int = 0):
     global _device
     from com.huawei.hosscrcpy.api import HosRemoteDevice, HosRemoteConfig
-    _device = HosRemoteDevice(HosRemoteConfig(serial))
+    config = HosRemoteConfig(serial)
+    if bitrate > 0:
+        config.setBitRate(bitrate)
+        log.info("Bitrate: %d bps", bitrate)
+    if i_frame_interval > 0:
+        config.setIFrameInterval(i_frame_interval)
+        log.info("I-frame interval: %d", i_frame_interval)
+    _device = HosRemoteDevice(config)
     log.info("Device: %s, online=%s", serial, _device.isOnline())
 
 

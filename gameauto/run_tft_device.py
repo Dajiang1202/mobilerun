@@ -1183,7 +1183,7 @@ async def main() -> None:
     except Exception:
         pass
 
-    capture = Capture(DEVICE_SERIAL, SDK_JAR, JAVA_HOME, scale=SCALE, max_fps=MAX_FPS)
+    capture = Capture(DEVICE_SERIAL, SDK_JAR, JAVA_HOME, scale=SCALE, max_fps=MAX_FPS, bitrate=1_000_000)
     await capture.connect()
     inp = Input(DEVICE_SERIAL, SDK_JAR, JAVA_HOME, scale=SCALE, max_fps=MAX_FPS)
     await inp.connect()

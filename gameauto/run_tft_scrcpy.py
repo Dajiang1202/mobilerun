@@ -110,7 +110,7 @@ async def main():
     # ── Step 3: Connect device (scrcpy) ────────────────────────────────
     logger.info("Connecting to device: %s", serial)
 
-    capture = Capture(serial)
+    capture = Capture(serial, bitrate=1_000_000)
     await capture.connect()
     input_device = Input(serial)
     await input_device.connect()
