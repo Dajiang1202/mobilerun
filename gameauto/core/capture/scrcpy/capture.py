@@ -26,6 +26,7 @@ class ScrcpyCapture(BaseCapture):
 
         capture = ScrcpyCapture("serial")          # scale=2 (half), 30fps
         capture = ScrcpyCapture("serial", scale=3) # third resolution
+        capture = ScrcpyCapture("serial", bitrate=2_000_000)  # 低码率省功耗
         await capture.connect()
         png = await capture.screenshot()           # output resolution
         w, h = capture.native_resolution            # native (for coords)
@@ -36,12 +37,15 @@ class ScrcpyCapture(BaseCapture):
     _DEFAULT_FPS = 30
 
     def __init__(self, serial: str, sdk_jar: str = "", java_home: str = "",
-                 scale: int = 0, max_fps: int = 0) -> None:
+                 scale: int = 0, max_fps: int = 0,
+                 bitrate: int = 0, i_frame_interval: int = 0) -> None:
         self._serial = serial
         self._sdk_jar = sdk_jar or self._DEFAULT_SDK_JAR
         self._java_home = java_home
         self._scale = scale or self._DEFAULT_SCALE
         self._fps = max_fps or self._DEFAULT_FPS
+        self._bitrate = bitrate
+        self._i_frame_interval = i_frame_interval
         self._connected = False
         self._w = 0
         self._h = 0
@@ -67,9 +71,12 @@ class ScrcpyCapture(BaseCapture):
 
     def _connect_sync(self) -> None:
         init(self._serial, self._sdk_jar, self._java_home,
-             scale=self._scale, max_fps=self._fps)
+             scale=self._scale, max_fps=self._fps,
+             bitrate=self._bitrate, i_frame_interval=self._i_frame_interval)
         self._w, self._h = resolution()
         if not self._w or not self._h:
             raise ConnectionError("ScrcpyCapture: stream failed, resolution is 0x0")
-        log.info("ScrcpyCapture: native %dx%d, scale=%d, %dfps",
-                 self._w, self._h, self._scale, self._fps)
+        log.info("ScrcpyCapture: native %dx%d, scale=%d, %dfps, bitrate=%s, i_frame=%s",
+                 self._w, self._h, self._scale, self._fps,
+                 f"{self._bitrate/1_000_000:.1f}Mbps" if self._bitrate else "default",
+                 f"{self._i_frame_interval}s" if self._i_frame_interval else "default")
