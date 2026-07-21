@@ -106,37 +106,34 @@ class HarmonyStateProvider(StateProvider):
             logger.warning("get_ui_tree failed; falling back to screenshot-only: %s", e)
             phone_state["treeError"] = str(e)
 
-        # 3) Coordinate instruction (matches screenshot-only wording for parity).
+        # 3) Coordinate instruction.
+        # 设计原则:截图是主要信息源(像人看屏幕),UI 树是附加参考
+        # (截图看不清的小图标/密集列表时辅助)。不要引导 LLM 优先用 index。
         if self.use_normalized:
             coord_instruction = (
-                "Dual-channel mode is active (screenshot + UI tree, "
-                "normalized [0-1000] coordinates). "
-                "Use element index when the target appears in the UI tree; "
-                "otherwise use normalized coordinates: x from 0 (left) to 1000 "
-                f"(right), y from 0 (top) to 1000 (bottom). "
-                f"({max_x},{max_y}) maps to (1000,1000). "
+                "主要看截图操作(像人用手机一样)。归一化坐标: "
+                "x 从 0(左)到 1000(右),y 从 0(上)到 1000(下),"
+                f"({max_x},{max_y}) 对应 (1000,1000)。"
+                "下方还附了一份当前界面控件列表(辅助参考,截图看不清时可参考)。"
             )
         else:
             coord_instruction = (
-                "Dual-channel mode is active (screenshot + UI tree). "
-                "Prefer clicking by element index when the target appears in "
-                "the UI tree. Otherwise use pixel coordinates in the screenshot "
-                f"coordinate space shown to the model ({screen_w}x{screen_h}; "
-                f"(0,0) is top-left, ({max_x},{max_y}) is bottom-right). "
+                "主要看截图操作(像人用手机一样)。坐标用截图像素空间 "
+                f"({screen_w}x{screen_h};(0,0) 左上,({max_x},{max_y}) 右下)。"
+                "下方还附了一份当前界面控件列表(辅助参考,截图看不清时可参考)。"
             )
 
         # 4) Assemble final formatted_text.
         if tree_text:
             formatted_text = (
                 coord_instruction
-                + "\n\n## Current UI Elements (index. type: text - bounds)\n"
+                + "\n\n## 当前界面控件列表(辅助参考,序号可用于点击)\n"
                 + tree_text
             )
         else:
             # Tree unavailable — behave like screenshot-only.
             formatted_text = coord_instruction + (
-                "No UI tree available. Inspect the screenshot and use "
-                "coordinate actions."
+                "本次未获取到控件列表,请直接看截图操作。"
             )
 
         return UIState(
@@ -267,7 +264,13 @@ class HarmonyStateProvider(StateProvider):
                 skipped += 1
                 continue
 
-            label = text or desc or el_id
+            # 给 LLM 看的文字行:用人类可理解的 label(text/desc),
+            # 不暴露技术 id(避免污染自然语言决策)。
+            # id/key 等技术字段仍保留在 el_copy 里,供 M4 固化器提取定位器。
+            label = text or desc
+            if not label:
+                # 没有 text/desc 时,用类型+可点击性描述(像人看图标那样)
+                label = f"({el_type},可点击)" if clickable else f"({el_type})"
             flags = []
             if clickable:
                 flags.append("clickable")
@@ -276,12 +279,12 @@ class HarmonyStateProvider(StateProvider):
             if selected:
                 flags.append("selected")
             flag_str = f" [{','.join(flags)}]" if flags else ""
-            id_hint = f" id={el_id}" if el_id else ""
 
             lines.append(
-                f"{idx}. {el_type}: {label!r}{id_hint} - bounds={bounds_scaled}{flag_str}"
+                f"{idx}. {label!r} - bounds={bounds_scaled}{flag_str}"
             )
 
+            # el_copy 保留完整技术信息(id/key/text/bounds/属性)给轨迹/M4
             el_copy = dict(el)
             el_copy["index"] = idx
             el_copy["bounds"] = bounds_scaled  # rescaled for tap_element math

@@ -43,11 +43,7 @@ QWEN_MODEL = _os.environ.get("QWEN_MODEL", "qwen3-vl-flash")
 HDC_PATH = _os.environ.get("HDC_PATH", r"D:\gameauto\mobilerun\tools\hdc\hdc.exe")
 
 TASK = (
-    "当前应该在微信'辅测机'聊天页(顶部标题是'辅测机',底部有输入框)。"
-    "请完成:1) 点击底部的 RichEditor 输入框(id 含 editorId)使其获得焦点;"
-    "2) 输入文字 'Hello'; 3) 点击发送按钮。完成后调用 complete。"
-    "注意:如果点输入框后出现搜索界面(顶部有'搜索'和'取消'),说明点错了,"
-    "点'取消'返回,然后改用 type 工具直接输入。"
+    "在当前的微信聊天页,发送一条文字消息:Hello"
 )
 
 
