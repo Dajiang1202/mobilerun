@@ -20,11 +20,27 @@ from mobilerun.config_manager import MobileConfig
 from mobilerun.tools.driver.harmonyos import HarmonyOSDriver
 from mobilerun.tools.ui.harmony_provider import HarmonyStateProvider
 
-# ── 配置 ──────────────────────────────────────────────────────────────
-QWEN_API_KEY = "sk-REDACTED-IN- HISTORY"
-QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-QWEN_MODEL = "qwen3-vl-flash"
-HDC_PATH = r"D:\gameauto\mobilerun\tools\hdc\hdc.exe"
+# ── 配置(从环境变量读,key 不入库;参考 .env.example) ────────────────
+import os as _os
+_qwen_key = _os.environ.get("QWEN_API_KEY")
+if not _qwen_key:
+    # 尝试从 .env 读(开发便利,生产用环境变量)
+    _env_file = Path(__file__).parent.parent / ".env"
+    if _env_file.exists():
+        for _line in _env_file.read_text(encoding="utf-8").splitlines():
+            _line = _line.strip()
+            if _line.startswith("QWEN_API_KEY="):
+                _qwen_key = _line.split("=", 1)[1].strip().strip('"').strip("'")
+                break
+if not _qwen_key:
+    print("❌ 未找到 QWEN_API_KEY。请设置环境变量,或在项目根建 .env 文件:")
+    print("   QWEN_API_KEY=sk-你的key")
+    print("   (.env 已在 .gitignore,不会提交)")
+    sys.exit(1)
+QWEN_API_KEY = _qwen_key
+QWEN_BASE_URL = _os.environ.get("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+QWEN_MODEL = _os.environ.get("QWEN_MODEL", "qwen3-vl-flash")
+HDC_PATH = _os.environ.get("HDC_PATH", r"D:\gameauto\mobilerun\tools\hdc\hdc.exe")
 
 TASK = (
     "当前应该在微信'辅测机'聊天页(顶部标题是'辅测机',底部有输入框)。"
