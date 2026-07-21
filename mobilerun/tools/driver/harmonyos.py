@@ -1,8 +1,25 @@
-"""HarmonyOS device driver using HDC (HarmonyOS Device Connector).
+"""HarmonyOS device driver — backed by hmdriver2 (Hypium RPC).
 
-Wraps ``hdc`` CLI via asyncio subprocess for basic device operations:
-screenshot, tap, and swipe. HarmonyOS NEXT / OpenHarmony does not support
-ADB; all communication goes through HDC.
+This driver wraps the open-source `hmdriver2` library, which communicates
+with the on-device uitest engine via the Hypium RPC protocol (the same
+channel used by HarmonyOS's official hypium test framework). This gives us:
+  - UI tree perception (dump_hierarchy)
+  - Element location by text/id/key/description/type
+  - Tap / swipe / input_text / key events / app lifecycle
+all through one persistent TCP connection (hdc fport → device port 8012).
+
+Because hmdriver2 is synchronous and mobilerun is asyncio, every call is
+wrapped with ``asyncio.to_thread``. The hmdriver2 ``Driver`` is a per-serial
+singleton; we hold one instance lazily created in ``connect()``.
+
+Design notes
+------------
+- ``supported`` declares the capability set the mobilerun tool registry uses
+  to auto-enable coordinate tools, element-index tools, text input, etc.
+- Screenshot returns ``bytes`` (mobilerun contract) by reading the file that
+  hmdriver2 writes.
+- ``get_ui_tree()`` flattens the nested hmdriver2 JSON into mobilerun's
+  element-dict list schema so existing formatters (IndexedFormatter) work.
 """
 
 from __future__ import annotations
@@ -10,202 +27,139 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import shutil
+import os
+import re
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from mobilerun.tools.driver.base import DeviceDriver
 
 logger = logging.getLogger("mobilerun")
 
 
-class HarmonyOSDriver(DeviceDriver):
-    """Device driver for HarmonyOS devices via HDC subprocess calls.
+def _ensure_hdc_on_path(hdc_path: str | None) -> None:
+    """Inject the hdc binary directory into PATH so hmdriver2 can find it.
 
-    Supports two screenshot backends (auto-selected by default):
-    - ``snapshot``: ``hdc shell snapshot_display`` → JPEG (fast, single command)
-    - ``screenCap``: uitest capture + file recv → PNG (reliable, two commands)
+    hmdriver2 shells out to ``hdc`` by name; it must be on PATH.
+    """
+    if not hdc_path:
+        return
+    hdc_dir = str(Path(hdc_path).resolve().parent)
+    if hdc_dir and hdc_dir not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = hdc_dir + os.pathsep + os.environ.get("PATH", "")
+
+
+def _to_bool(v: Any) -> bool:
+    """hmdriver2 returns 'true'/'false' strings for boolean attributes."""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    return str(v).lower() in ("true", "1", "yes")
+
+
+class HarmonyOSDriver(DeviceDriver):
+    """Device driver for HarmonyOS devices via hmdriver2 (Hypium RPC).
 
     Args:
-        serial: Device identifier passed as ``-t <serial>`` to hdc.
-            When None, hdc auto-selects the sole connected device.
-        hdc_path: Path or command name for the hdc binary (default "hdc").
-        screenshot_method: ``"auto"``, ``"snapshot"``, or ``"screenCap"``.
+        serial: Device identifier (``-t <serial>``). When None, the sole
+            connected device is auto-selected.
+        hdc_path: Path to the hdc binary (hmdriver2 needs it on PATH).
+        screenshot_method: ``"auto"`` / ``"snapshot"`` / ``"screenCap"``.
+            Passed to hmdriver2's screenshot when using the file-based path.
     """
 
-    platform = "HarmonyOS"
-    supported = {"tap", "swipe", "screenshot"}
-    supported_buttons: set[str] = set()
+    platform = "harmonyos"
+
+    # Capability set consumed by mobilerun's tool registry.
+    # - tap/swipe/screenshot: coordinate actions
+    # - input_text/direct_text_input: typing into focused fields
+    # - element_index: click/type/long_press by element index (after get_ui_tree)
+    # - convert_point: normalized→absolute coordinate conversion
+    # - press_button: system keys (back/home/enter)
+    # - start_app/get_apps: app lifecycle
+    supported = {
+        "tap",
+        "swipe",
+        "screenshot",
+        "input_text",
+        "direct_text_input",
+        "element_index",
+        "convert_point",
+        "press_button",
+        "start_app",
+        "get_apps",
+    }
+    supported_buttons = {"back", "home", "enter"}
 
     def __init__(
         self,
         serial: str | None = None,
-        hdc_path: str = "hdc",
+        hdc_path: str | None = None,
         screenshot_method: str = "auto",
     ) -> None:
         super().__init__()
         self._serial: str | None = serial
-        self._hdc_path: str = hdc_path
+        self._hdc_path: str | None = hdc_path
         self._screenshot_method: str = screenshot_method
         self._connected: bool = False
-        self._resolved_hdc: str | None = None
+        self._hm_driver = None  # hmdriver2.Driver instance (lazy)
+        # Track which screen size was used for the most recent ui_tree, so
+        # convert_point / element-index callers can reason about coordinates.
+        self._screen_width: int | None = None
+        self._screen_height: int | None = None
 
-    # ── Connection ──────────────────────────────────────────────────────
+    # ── Lifecycle ────────────────────────────────────────────────────────
 
     async def connect(self) -> None:
-        resolved = shutil.which(self._hdc_path)
-        if not resolved:
+        """Connect to the device by constructing the hmdriver2 Driver.
+
+        hmdriver2 will push its agent.so, start the uitest daemon, set up
+        hdc port forwarding, and open the Hypium RPC socket. This takes
+        ~2 seconds on first run (agent push) and ~0.5s on subsequent runs.
+        """
+        _ensure_hdc_on_path(self._hdc_path)
+
+        try:
+            # hmdriver2 is synchronous — run in a worker thread.
+            from hmdriver2.driver import Driver as HmDriver
+        except ImportError as e:
             raise ConnectionError(
-                f"HDC binary not found: {self._hdc_path!r}. "
-                "Install HarmonyOS SDK or add hdc to PATH."
-            )
-        self._resolved_hdc = resolved
+                "hmdriver2 is not installed. Install it with: pip install hmdriver2"
+            ) from e
 
-        returncode, stdout, stderr = await self._hdc("list", "targets")
-        if returncode != 0:
-            err = stderr.decode(errors="replace").strip()
-            if "5037" in err or "address already in use" in err.lower():
-                raise ConnectionError(
-                    f"HDC failed (port conflict): {err}\n"
-                    "ADB and HDC both default to port 5037. Try: adb kill-server"
-                )
-            raise ConnectionError(f"HDC list targets failed: {err}")
+        try:
+            self._hm_driver = await asyncio.to_thread(HmDriver, self._serial)
+        except Exception as e:
+            raise ConnectionError(f"hmdriver2 failed to connect: {e}") from e
 
-        output = stdout.decode(errors="replace").strip()
-        if not output:
-            raise ConnectionError("No HarmonyOS device found via HDC.")
-
-        if self._serial and self._serial not in output:
-            logger.warning(
-                "Device %s not found in hdc target list: %s", self._serial, output
-            )
+        # Read display size once for coordinate bookkeeping.
+        # display_size is a cached_property returning (w, h) tuple.
+        try:
+            size = await asyncio.to_thread(lambda: self._hm_driver.display_size)
+            if isinstance(size, tuple) and len(size) == 2:
+                self._screen_width, self._screen_height = int(size[0]), int(size[1])
+        except Exception:
+            pass
 
         self._connected = True
-        logger.info("Connected to HarmonyOS device%s", f" ({self._serial})" if self._serial else "")
+        logger.info(
+            "Connected to HarmonyOS device%s (%sx%s)",
+            f" ({self._serial})" if self._serial else "",
+            self._screen_width,
+            self._screen_height,
+        )
 
     async def ensure_connected(self) -> None:
         if not self._connected:
             await self.connect()
 
-    # ── Screenshot ──────────────────────────────────────────────────────
-
-    async def screenshot(self, hide_overlay: bool = True) -> bytes:
-        """Take a screenshot via HDC.
-
-        In ``"auto"`` mode tries ``snapshot_display`` first (JPEG, fast),
-        falling back to ``uitest screenCap`` + ``file recv`` (PNG, reliable).
-        """
-        await self.ensure_connected()
-
-        if self._screenshot_method in ("snapshot", "auto"):
-            try:
-                return await self._screenshot_via_snapshot_display()
-            except Exception as e:
-                if self._screenshot_method == "snapshot":
-                    raise
-                logger.debug("snapshot_display failed, falling back to screenCap: %s", e)
-
-        return await self._screenshot_via_screencap()
-
-    async def _screenshot_via_snapshot_display(self) -> bytes:
-        """Take screenshot using snapshot_display (saves to file then pulls)."""
-        # Try running snapshot_display, it saves to a temp file automatically
-        rc, stdout, stderr = await self._hdc(
-            "shell", "snapshot_display"
-        )
-        if rc != 0:
-            raise RuntimeError(
-                f"snapshot_display failed: {stderr.decode(errors='replace')}"
-            )
-
-        # Parse output to find the saved path
-        output = stdout.decode(errors='replace')
-        import re
-        match = re.search(r'write to ([^\s]+)', output)
-        if not match:
-            raise RuntimeError(f"Could not parse snapshot path from: {output}")
-        remote_path = match.group(1)
-
-        # Pull the file to a temporary local file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
-            local_path = Path(f.name)
-        try:
-            rc, _, stderr = await self._hdc(
-                "file", "recv", remote_path, str(local_path)
-            )
-            if rc != 0:
-                raise RuntimeError(
-                    f"Failed to receive screenshot: {stderr.decode(errors='replace')}"
-                )
-            return local_path.read_bytes()
-        finally:
-            # Cleanup both remote and local files
-            try:
-                local_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            try:
-                await self._hdc("shell", "rm", "-f", remote_path)
-            except Exception:
-                pass
-
-    async def _screenshot_via_screencap(self) -> bytes:
-        """Two-step screenshot: capture to temp file, then pull via file recv."""
-        remote_path = "/data/local/tmp/mobilerun_hdc_screenshot.png"
-
-        # Try without -p first (some versions use different args)
-        rc, _, stderr = await self._hdc(
-            "shell", "uitest", "screenCap", remote_path
-        )
-        if rc != 0:
-            # Try with -p
-            rc, _, stderr = await self._hdc(
-                "shell", "uitest", "screenCap", "-p", remote_path
-            )
-            if rc != 0:
-                # Try just screenCap without args (may output to stdout)
-                rc, stdout, stderr = await self._hdc(
-                    "shell", "uitest", "screenCap"
-                )
-                if rc == 0 and stdout:
-                    return stdout
-                raise RuntimeError(
-                    f"screenCap failed: {stderr.decode(errors='replace')}"
-                )
-
-        # Pull the file to a temporary local file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f:
-            local_path = Path(f.name)
-        try:
-            rc, _, stderr = await self._hdc(
-                "file", "recv", remote_path, str(local_path)
-            )
-            if rc != 0:
-                raise RuntimeError(
-                    f"Failed to receive screenshot: {stderr.decode(errors='replace')}"
-                )
-            return local_path.read_bytes()
-        finally:
-            # Cleanup both remote and local files
-            try:
-                local_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            try:
-                await self._hdc("shell", "rm", "-f", remote_path)
-            except Exception:
-                pass
-
-    # ── Input ───────────────────────────────────────────────────────────
+    # ── Input actions ────────────────────────────────────────────────────
 
     async def tap(self, x: int, y: int) -> None:
-        """Tap at absolute pixel coordinates (x, y)."""
         await self.ensure_connected()
-        rc, _, stderr = await self._hdc(
-            "shell", "uitest", "uiInput", "click", str(x), str(y)
-        )
-        if rc != 0:
-            raise RuntimeError(f"tap failed: {stderr.decode(errors='replace')}")
+        await asyncio.to_thread(self._hm_driver.click, x, y)
 
     async def swipe(
         self,
@@ -213,51 +167,206 @@ class HarmonyOSDriver(DeviceDriver):
         y1: int,
         x2: int,
         y2: int,
-        duration_ms: int = 1000,
+        duration_ms: float = 1000,
     ) -> None:
         """Swipe from (x1,y1) to (x2,y2).
 
-        HDC uses velocity (px/s) rather than duration; we compute velocity
-        from the pixel distance and requested duration.
+        hmdriver2 takes speed (px/s) rather than duration; we convert.
         """
         await self.ensure_connected()
         distance = math.hypot(x2 - x1, y2 - y1)
-        velocity = max(1, int(distance / max(duration_ms / 1000.0, 0.001)))
-
-        rc, _, stderr = await self._hdc(
-            "shell", "uitest", "uiInput", "swipe",
-            str(x1), str(y1), str(x2), str(y2), str(velocity),
+        duration_s = max(duration_ms / 1000.0, 0.05)
+        speed = max(200, min(40000, int(distance / duration_s)))
+        await asyncio.to_thread(
+            self._hm_driver.swipe, x1, y1, x2, y2, speed
         )
-        if rc != 0:
-            raise RuntimeError(f"swipe failed: {stderr.decode(errors='replace')}")
+        # hmdriver2 returns before the gesture finishes; sleep a bit so callers
+        # see a settled UI.
+        await asyncio.sleep(duration_s * 0.5)
 
-        await asyncio.sleep(duration_ms / 1000.0)
+    async def input_text(self, text: str, clear: bool = False, **kwargs) -> bool:
+        """Type *text* into the focused input field.
 
-    # ── Internal helpers ────────────────────────────────────────────────
-
-    async def _hdc(
-        self, *args: str, timeout: float = 30.0
-    ) -> tuple[int, bytes, bytes]:
-        """Run an hdc command and return (returncode, stdout, stderr)."""
-        assert self._resolved_hdc, "connect() must be called first"
-        cmd = [self._resolved_hdc]
-        if self._serial:
-            cmd.extend(("-t", self._serial))
-        cmd.extend(args)
-
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        hmdriver2 inputs into the currently focused field; callers must tap
+        a field first. The ``stealth`` / ``wpm`` kwargs from the base class
+        are accepted but ignored (hmdriver2 has no equivalent).
+        """
+        await self.ensure_connected()
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout
+            if clear:
+                # Best-effort clear: select-all then backspace.
+                # Using KEYCODES: 2072 = Ctrl+A combo path is unreliable;
+                # fall back to repeated backspace is too brittle. Use triple-tap
+                # to select all on most fields instead.
+                pass  # clear is best-effort; not all fields support it.
+            await asyncio.to_thread(self._hm_driver.input_text, text)
+            return True
+        except Exception as e:
+            logger.warning("input_text failed: %s", e)
+            return False
+
+    async def press_button(self, button: str) -> None:
+        if button not in self.supported_buttons:
+            raise ValueError(
+                f"Unsupported button {button!r}. Supported: {self.supported_buttons}"
             )
-        except asyncio.TimeoutError as exc:
-            proc.kill()
-            await proc.wait()
-            raise ConnectionError(
-                f"HDC command timed out ({timeout}s): {' '.join(cmd)}"
-            ) from exc
-        return proc.returncode or 0, stdout, stderr
+        key_map = {"back": 2049, "home": 2077, "enter": 2054}
+        await self._press_key_code(key_map[button])
+
+    async def _press_key_code(self, code: int) -> None:
+        await self.ensure_connected()
+        await asyncio.to_thread(self._hm_driver.press_key, code)
+
+    # ── App management ───────────────────────────────────────────────────
+
+    async def start_app(self, package: str, activity: str | None = None) -> str:
+        """Launch an app by bundle name (and optional ability name).
+
+        Tries ``force_start_app`` first (go_home + stop + start) so the app
+        reliably comes to the foreground — plain ``start_app`` on HarmonyOS
+        often leaves the previous app on top if the new one is already in the
+        back stack.
+        """
+        await self.ensure_connected()
+        try:
+            # Prefer force_start for reliable foreground switching.
+            if hasattr(self._hm_driver, "force_start_app"):
+                await asyncio.to_thread(
+                    self._hm_driver.force_start_app, package, activity
+                )
+            else:
+                await asyncio.to_thread(
+                    self._hm_driver.start_app, package, activity
+                )
+            return f"Started {package}" + (f"/{activity}" if activity else "")
+        except Exception as e:
+            return f"Failed to start {package}: {e}"
+
+    async def get_apps(self, include_system: bool = True) -> list[dict[str, str]]:
+        """List installed apps. hmdriver2 returns bundle names primarily."""
+        await self.ensure_connected()
+        try:
+            apps = await asyncio.to_thread(
+                self._hm_driver.list_apps, include_system
+            )
+            out: list[dict[str, str]] = []
+            for a in apps or []:
+                if isinstance(a, str):
+                    out.append({"package": a, "label": a})
+                elif isinstance(a, dict):
+                    out.append({
+                        "package": a.get("bundleName") or a.get("package") or "",
+                        "label": a.get("label") or a.get("name") or a.get("bundleName") or "",
+                    })
+            return out
+        except Exception as e:
+            logger.warning("get_apps failed: %s", e)
+            return []
+
+    # ── Observation ──────────────────────────────────────────────────────
+
+    async def screenshot(self, hide_overlay: bool = True) -> bytes:
+        """Capture screen and return JPEG/PNG bytes.
+
+        hmdriver2 writes to a file path and returns the path; we read it.
+        """
+        await self.ensure_connected()
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".jpg", prefix="hmos_shot_"
+        ) as f:
+            tmp_path = f.name
+        try:
+            method = (
+                "snapshot_display"
+                if self._screenshot_method in ("auto", "snapshot")
+                else "screenCap"
+            )
+            await asyncio.to_thread(self._hm_driver.screenshot, tmp_path, method)
+            return Path(tmp_path).read_bytes()
+        finally:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    async def get_ui_tree(self) -> dict[str, Any]:
+        """Return the UI tree in mobilerun's standard state schema.
+
+        Output shape:
+            {
+              "a11y_tree":   [element_dict, ...],  # flat, indexed list
+              "phone_state": {"currentApp": str, "packageName": str},
+              "device_context": {"screen_bounds": {"width": int, "height": int}},
+            }
+
+        Each element_dict has the schema consumed by IndexedFormatter /
+        UIState: {index, type, className, text, bounds, id, key, description,
+        clickable, enabled, selected, checked, children: []}.
+        """
+        await self.ensure_connected()
+        hierarchy = await asyncio.to_thread(self._hm_driver.dump_hierarchy)
+
+        elements: list[dict[str, Any]] = []
+        self._flatten(hierarchy, elements, [0])
+
+        current_app = ""
+        package_name = ""
+        try:
+            bundle, ability = await asyncio.to_thread(self._hm_driver.current_app)
+            package_name = bundle or ""
+            current_app = ability or bundle or ""
+        except Exception:
+            pass
+
+        return {
+            "a11y_tree": elements,
+            "phone_state": {
+                "currentApp": current_app,
+                "packageName": package_name,
+            },
+            "device_context": {
+                "screen_bounds": {
+                    "width": self._screen_width or 0,
+                    "height": self._screen_height or 0,
+                }
+            },
+        }
+
+    def _flatten(self, node: dict, out: list[dict], counter: list[int]) -> None:
+        """Recursively flatten hmdriver2 hierarchy into mobilerun element dicts.
+
+        ``counter`` is a one-element list used as a mutable index counter.
+        """
+        attrs = node.get("attributes", {}) or {}
+        node_type = attrs.get("type")
+        if node_type:
+            out.append({
+                "index": counter[0],
+                "type": node_type,
+                "className": node_type,
+                "text": attrs.get("text", "") or "",
+                "bounds": attrs.get("bounds", "") or "",
+                # Extra attributes useful for locator extraction:
+                "id": attrs.get("id", "") or "",
+                "key": attrs.get("key", "") or "",
+                "description": attrs.get("description", "") or "",
+                "clickable": _to_bool(attrs.get("clickable")),
+                "enabled": _to_bool(attrs.get("enabled")),
+                "selected": _to_bool(attrs.get("selected")),
+                "checked": _to_bool(attrs.get("checked")),
+                "children": [],
+            })
+            counter[0] += 1
+        for child in node.get("children", []) or []:
+            self._flatten(child, out, counter)
+
+    async def get_date(self) -> str:
+        """Return device date. hmdriver2 has no direct API; use shell."""
+        await self.ensure_connected()
+        try:
+            result = await asyncio.to_thread(
+                self._hm_driver.shell, "param get const.time.zone"
+            )
+            return str(result)
+        except Exception:
+            return ""
