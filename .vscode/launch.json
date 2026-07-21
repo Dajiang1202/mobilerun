@@ -1,0 +1,105 @@
+{
+    // ─────────────────────────────────────────────────────────────────
+    // mobilerun_hmos (mobileohos) 调试配置
+    //
+    // 使用前:
+    //   1. VSCode 左下角 / Command Palette → "Python: Select Interpreter"
+    //      选 D:\gameauto\mobilerun\.venv\Scripts\python.exe
+    //   2. 鸿蒙真机已用 USB 连接,hdc list targets 能看到设备
+    //   3. F5 启动;输出在 "调试控制台"/"终端"
+    // ─────────────────────────────────────────────────────────────────
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // ── 主力配置:跑 FastAgent 端到端任务 ──
+            // 在 debug/run_fastagent_harmony.py 顶部改 TASK 变量改任务
+            "name": "🤖 FastAgent 鸿蒙任务",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/debug/run_fastagent_harmony.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+
+            // 关键:hdc 必须在 PATH,否则 hmdriver2 连不上设备
+            "env": {
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}",
+                // hmdriver2 日志级别(VERBOSE 调试 RPC 协议时用)
+                "HMDRIVER_LOG_LEVEL": "INFO"
+            },
+            "cwd": "${workspaceFolder}",
+
+            // 断点停在任意 mobilerun/hmdriver2 内部代码(justMyCode=false 已开启)
+            // 常用断点位置:
+            //   mobilerun/tools/driver/harmonyos.py    HarmonyOSDriver 各方法
+            //   mobilerun/tools/ui/harmony_provider.py HarmonyStateProvider.get_state
+            //   mobilerun/agent/fast_agent/fast_agent.py  LLM 调用点
+            "stopOnEntry": false
+        },
+        {
+            // ── 最小闭环测试(不走 FastAgent,自己写的 LLM 循环) ──
+            // 适合快速验证 driver+provider+LLM 基础链路
+            "name": "🧪 最小闭环 (test_e2e_wechat)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/debug/test_e2e_wechat.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+            },
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            // ── Driver 单元测试(无 LLM,只验 driver+provider) ──
+            "name": "🔌 Driver 测试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/debug/test_driver.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+            },
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            // ── Provider 单元测试(看 UI 树筛选效果) ──
+            "name": "🌳 Provider 测试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/debug/test_provider.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+            },
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            // ── hmdriver2 连通性测试(最先该跑的) ──
+            "name": "📡 hmdriver2 连通性",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/debug/test_hmdriver2.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+            },
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            // ── 当前文件(打开哪个 .py 就跑哪个) ──
+            "name": "📄 当前文件",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+            },
+            "cwd": "${fileDirname}"
+        }
+    ]
+}

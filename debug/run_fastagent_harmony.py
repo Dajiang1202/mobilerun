@@ -7,6 +7,7 @@
 (假设手机已停在辅测机聊天页)
 """
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -57,6 +58,26 @@ async def main():
     await driver.connect()
     provider = HarmonyStateProvider(driver, use_normalized=True, max_elements=40)
     print(f"  ✅ driver+provider 就绪, 屏幕尺寸 {driver._screen_width}x{driver._screen_height}")
+
+    # 2.5) 启动前状态校验:确认在辅测机聊天页,避免跑错页面
+    print("\n[2.5] 校验初始状态")
+    pre_state = await driver.get_ui_tree()
+    import json as _json
+    blob = _json.dumps(pre_state, ensure_ascii=False)
+    in_chat = "辅测机" in blob and "editorId" in blob and "搜索" not in blob and "取消" not in blob
+    print(f"  当前 App: {pre_state['phone_state']['packageName']}")
+    print(f"  在辅测机聊天页: {'✅ 是' if in_chat else '❌ 否'}")
+    if not in_chat:
+        print("  ⚠️ 状态不对!请手动把手机弄回辅测机聊天页(顶部标题'辅测机',底部有输入框)")
+        print("  ⚠️ 然后重新运行。当前 UI 含关键词:")
+        for kw in ["辅测机", "editorId", "搜索", "取消", "RichEditor"]:
+            if kw in blob:
+                print(f"     - {kw}")
+        # 不直接退出,让用户看到诊断后自己决定
+        ans = input("  仍要继续运行吗?(y/N): ").strip().lower()
+        if ans != "y":
+            print("  已取消运行。")
+            return
 
     # 3) 构造最小 config
     print("\n[3] 构造 MobileConfig")

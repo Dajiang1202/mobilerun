@@ -14,11 +14,13 @@ test.ipynb
 messages_log.json
 
 .idea
-.vscode
+.vscode/*
 .vscode-test
 .vscode-test-*
 .idea/*
-.vscode/*
+# 但共享调试配置(launch.json + 使用说明),团队每个人都能直接 F5
+!.vscode/launch.json
+!.vscode/README.md
 patch_apis.py
 .git
 .arize-phoenix
@@ -34,6 +36,10 @@ credentials.yaml
 .*/
 !.gitignore
 !.github/
+# 共享 VSCode 调试配置(settings.json 含机器特定路径,仍个人化)
+!.vscode/
+!.vscode/launch.json
+!.vscode/README.md
 
 backend/
 frontend/
