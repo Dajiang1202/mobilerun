@@ -2,25 +2,39 @@
 
 ## 一次性配置(打开 VSCode 后做一次)
 
-### 1. 选 Python 解释器
+### 1. 装 Python 扩展
 
-- `Ctrl+Shift+P` → 输入 `Python: Select Interpreter` → 回车
-- 选:**`D:\gameauto\mobilerun\.venv\Scripts\python.exe`**
-- (如果列表里没有,点 `Enter interpreter path...` 手动粘贴上面的路径)
-
-> 这个 venv 里装了 mobilerun(editable 指向 mobileohos)+ hmdriver2 + 所有依赖。
-> **千万别选成系统 Python 或别的 venv**,否则 import 会失败。
-
-### 2. 装推荐扩展
-
-`Ctrl+Shift+X` 打开扩展市场,装这几个:
+`Ctrl+Shift+X` 打开扩展市场,搜索并安装:
 
 | 扩展 | 作用 |
 |---|---|
-| **Python**(Microsoft) | Python 语言支持、调试器 |
-| **Ruff**(Astral) | 代码 lint/格式化(项目已配 ruff 规则) |
+| **Python**(Microsoft) | Python 语言支持、调试器(debugpy) |
+| **Ruff**(Astral) | 代码 lint/格式化(可选) |
 
-> Pylance 会随 Python 扩展自动装,不用单独操作。
+> **不需要 "Python: Select Interpreter"** —— launch.json 里每个 configuration
+> 都通过 `"python"` 字段硬编码了 venv 路径(`D:\gameauto\mobilerun\.venv`),
+> 直接 F5 就用这个 venv 跑,不依赖解释器选择。
+
+### 2. 关于 venv
+
+这个项目**共用 fork 的 venv**:`D:\gameauto\mobilerun\.venv\`
+原因:mobilerun 是 editable 安装,指向 mobileohos。在这个 venv 里改了
+mobileohos 的代码,立即生效,不用重装。
+
+如果你要在别的机器上用,需要:
+1. 在 `D:\gameauto\mobilerun\` 建 venv 并装好依赖(参考 fork 的 requirements.txt)
+2. 或者把 launch.json 里所有 `"python"` 字段改成你机器上的 venv 路径
+
+---
+
+## 日常调试
+
+### 跑 FastAgent 任务(主力)
+
+1. 打开 `debug/run_fastagent_harmony.py`,改顶部的 `TASK` 变量定义任务
+2. 左侧"运行和调试"面板(图标是个带虫子的三角形)→ 下拉选 **🤖 FastAgent 鸿蒙任务**
+3. 按 `F5`(或点绿色 ▶️)
+4. 输出在底部的 **"终端"** 标签页(不是"调试控制台")
 
 ---
 
@@ -100,7 +114,10 @@ ui_states/        # 每步 UI 元素 0000.json 0001.json ...
 ## 排错
 
 ### Q: F5 启动报 `ModuleNotFoundError: No module named 'mobilerun'`
-**A**: 解释器选错了。`Ctrl+Shift+P` → `Python: Select Interpreter` → 选 `D:\gameauto\mobilerun\.venv\Scripts\python.exe`。
+**A**: venv 不对。检查 `launch.json` 里该 configuration 的 `"python"` 字段路径是不是 `D:\gameauto\mobilerun\.venv\Scripts\python.exe`,这个 venv 里才有 mobilerun。
+
+### Q: F5 没反应 / 提示找不到调试器
+**A**: Python 扩展没装。`Ctrl+Shift+X` 搜 Python(Microsoft)装上。debugpy 会随它一起装。
 
 ### Q: 报 `hdc: command not found` / `HDC binary not found`
 **A**: hdc 不在 PATH。检查 `.vscode/launch.json` 里 `env.PATH` 的 hdc 路径是否真实存在。用终端验证:`D:\gameauto\mobilerun\tools\hdc\hdc.exe list targets`。

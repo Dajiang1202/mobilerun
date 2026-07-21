@@ -3,10 +3,11 @@
     // mobilerun_hmos (mobileohos) 调试配置
     //
     // 使用前:
-    //   1. VSCode 左下角 / Command Palette → "Python: Select Interpreter"
-    //      选 D:\gameauto\mobilerun\.venv\Scripts\python.exe
-    //   2. 鸿蒙真机已用 USB 连接,hdc list targets 能看到设备
-    //   3. F5 启动;输出在 "调试控制台"/"终端"
+    //   1. 鸿蒙真机已用 USB 连接,hdc list targets 能看到设备
+    //   2. F5 启动;输出在 "终端" 标签页
+    //
+    // 不需要 "Python: Select Interpreter" —— 每个 configuration 都通过
+    // "python" 字段直接指定 venv,绕过解释器选择。
     // ─────────────────────────────────────────────────────────────────
     "version": "0.2.0",
     "configurations": [
@@ -17,12 +18,15 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/debug/run_fastagent_harmony.py",
+            // 关键:直接指定 venv 里的 python,不依赖 "Select Interpreter"
+            "python": "D:\\gameauto\\mobilerun\\.venv\\Scripts\\python.exe",
             "console": "integratedTerminal",
             "justMyCode": false,
 
             // 关键:hdc 必须在 PATH,否则 hmdriver2 连不上设备
             "env": {
                 "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}",
+                "PYTHONUNBUFFERED": "1",
                 // hmdriver2 日志级别(VERBOSE 调试 RPC 协议时用)
                 "HMDRIVER_LOG_LEVEL": "INFO"
             },
@@ -42,10 +46,12 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/debug/test_e2e_wechat.py",
+            "python": "D:\\gameauto\\mobilerun\\.venv\\Scripts\\python.exe",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
-                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}",
+                "PYTHONUNBUFFERED": "1"
             },
             "cwd": "${workspaceFolder}"
         },
@@ -55,10 +61,12 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/debug/test_driver.py",
+            "python": "D:\\gameauto\\mobilerun\\.venv\\Scripts\\python.exe",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
-                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}",
+                "PYTHONUNBUFFERED": "1"
             },
             "cwd": "${workspaceFolder}"
         },
@@ -68,10 +76,12 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/debug/test_provider.py",
+            "python": "D:\\gameauto\\mobilerun\\.venv\\Scripts\\python.exe",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
-                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}",
+                "PYTHONUNBUFFERED": "1"
             },
             "cwd": "${workspaceFolder}"
         },
@@ -81,10 +91,12 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/debug/test_hmdriver2.py",
+            "python": "D:\\gameauto\\mobilerun\\.venv\\Scripts\\python.exe",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
-                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}",
+                "PYTHONUNBUFFERED": "1"
             },
             "cwd": "${workspaceFolder}"
         },
@@ -94,10 +106,12 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
+            "python": "D:\\gameauto\\mobilerun\\.venv\\Scripts\\python.exe",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
-                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}"
+                "PATH": "D:\\gameauto\\mobilerun\\tools\\hdc;${env:PATH}",
+                "PYTHONUNBUFFERED": "1"
             },
             "cwd": "${fileDirname}"
         }
