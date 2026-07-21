@@ -302,6 +302,13 @@ class HarmonyOSDriver(DeviceDriver):
         Each element_dict has the schema consumed by IndexedFormatter /
         UIState: {index, type, className, text, bounds, id, key, description,
         clickable, enabled, selected, checked, children: []}.
+
+        Note on phone_state: hmdriver2's ``current_app()`` reads ``aa dump -l``
+        which on HarmonyOS reports stale BACKGROUND states for all missions,
+        so it cannot be trusted. We instead extract the foreground bundle
+        from the hierarchy itself: the top-level non-system child of the root
+        carries a ``bundleName`` attribute for the visible window (the system
+        sceneboard layer carries ``com.ohos.sceneboard`` and is skipped).
         """
         await self.ensure_connected()
         hierarchy = await asyncio.to_thread(self._hm_driver.dump_hierarchy)
@@ -309,14 +316,8 @@ class HarmonyOSDriver(DeviceDriver):
         elements: list[dict[str, Any]] = []
         self._flatten(hierarchy, elements, [0])
 
-        current_app = ""
-        package_name = ""
-        try:
-            bundle, ability = await asyncio.to_thread(self._hm_driver.current_app)
-            package_name = bundle or ""
-            current_app = ability or bundle or ""
-        except Exception:
-            pass
+        package_name = self._extract_foreground_bundle(hierarchy)
+        current_app = package_name
 
         return {
             "a11y_tree": elements,
@@ -331,6 +332,26 @@ class HarmonyOSDriver(DeviceDriver):
                 }
             },
         }
+
+    @staticmethod
+    def _extract_foreground_bundle(hierarchy: dict) -> str:
+        """Extract the foreground app's bundleName from the hierarchy root.
+
+        HarmonyOS dump_hierarchy nests windows under the root; the visible
+        app window carries ``bundleName`` in its attributes. The system
+        sceneboard layer (``com.ohos.sceneboard``) is also present and must
+        be skipped. Returns "" if no foreground bundle can be determined.
+        """
+        SYSTEM_BUNDLES = {"com.ohos.sceneboard"}
+        children = hierarchy.get("children", []) or []
+        for child in children:
+            attrs = child.get("attributes", {}) or {}
+            bundle = attrs.get("bundleName", "") or ""
+            if bundle and bundle not in SYSTEM_BUNDLES:
+                return bundle
+        # Fallback: search the whole root attributes (some versions put it there)
+        root_attrs = hierarchy.get("attributes", {}) or {}
+        return root_attrs.get("bundleName", "") or ""
 
     def _flatten(self, node: dict, out: list[dict], counter: list[int]) -> None:
         """Recursively flatten hmdriver2 hierarchy into mobilerun element dicts.

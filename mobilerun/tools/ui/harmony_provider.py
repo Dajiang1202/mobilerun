@@ -151,56 +151,202 @@ class HarmonyStateProvider(StateProvider):
             coordinate_scale_y=input_h / screen_h if screen_h else 1.0,
         )
 
+    # Element types that are pure layout containers in HarmonyOS / ArkUI.
+    # They never carry user-facing meaning on their own; we only keep them
+    # if they're also clickable (some ListItems act as tappable rows).
+    _PURE_CONTAINER_TYPES = frozenset({
+        "Stack", "Row", "Column", "Flex", "Grid", "GridItem",
+        "List", "ListItem", "RelativeContainer", "__Common__",
+        "Navigation", "NavigationContent", "NavDestination",
+        "NavDestinationContent", "WindowScene", "root",
+        "RichEditorContent",
+    })
+
+    # Status-bar / system-overlay IDs. Their bounds live in the top ~150px
+    # band and contribute nothing to app automation decisions.
+    _STATUS_BAR_ID_PREFIXES = (
+        "StatusBar",
+        "StatusBarAppIcon",
+        "WifiComponent",
+        "SignalComponent",
+        "BatteryComponent",
+        "bluetooth-",
+        "ringmode-",
+        "TimeView_",
+        "LiveMetaBall",
+    )
+
+    # Bounds in the top status-bar band (y < STATUS_BAR_HEIGHT_NATIVE) are
+    # treated as status-bar elements when the element has no app meaning.
+    # Native status bar is ~96-146px on 1276-wide devices.
+    _STATUS_BAR_HEIGHT_NATIVE = 150
+
+    def _in_status_bar_band(self, bounds_str: str) -> bool:
+        """True if element's bottom edge is within the status-bar band."""
+        import re
+
+        nums = re.findall(r"\d+", bounds_str or "")
+        if len(nums) < 4:
+            return False
+        try:
+            bottom = int(nums[3])
+        except ValueError:
+            return False
+        return bottom <= self._STATUS_BAR_HEIGHT_NATIVE
+
+    def _is_status_bar(self, el: dict) -> bool:
+        # Match by id prefix...
+        el_id = (el.get("id") or "").strip()
+        if any(el_id.startswith(p) for p in self._STATUS_BAR_ID_PREFIXES):
+            return True
+        # ...or by band: small elements fully inside the status-bar band with
+        # no app-meaningful text/id are almost always status-bar icons.
+        text = (el.get("text") or "").strip()
+        if not text and not el_id:
+            return self._in_status_bar_band(el.get("bounds", ""))
+        return False
+
     def _format_flat_tree(
         self, elements: list[dict], screen_w: int, screen_h: int
     ) -> tuple[list[dict], str]:
         """Format the driver's flat element list into LLM-facing text.
 
-        Returns (elements_with_stable_index, text_block). We re-number elements
-        1..N to match mobilerun's convention (indices start at 1) and emit one
-        line per element. Empty/decorative containers (no text, id, or
-        description AND not clickable) are skipped to keep the prompt small.
+        Returns (elements_with_stable_index, text_block). We re-number the
+        *kept* elements 1..N to match mobilerun's convention and emit one
+        line per element.
+
+        Filtering rules (drop elements that waste prompt tokens):
+          - Status-bar / system-overlay elements (wifi/battery/clock icons).
+          - Pure layout containers (Stack/Row/Column/...) are dropped unless
+            they are also clickable (some ListItems are tappable rows).
+          - Elements with no text/id/description AND not clickable AND no
+            checked/selected state are dropped (no info for the LLM and no
+            interaction affordance).
+          - Zero-size or off-screen bounds are dropped.
+
+        Bounds normalization: hmdriver2 bounds are in *native* pixels
+        (e.g. "[0,133][1276,2848]"). The LLM-facing screenshot is scaled to
+        (screen_w, screen_h) by fit_dimensions_to_max_side, so we rescale
+        bounds to the screenshot space to match what the LLM sees.
         """
+        native_w = self._driver_native_width(elements) or screen_w
+        native_h = self._driver_native_height(elements) or screen_h
+
         out: list[dict] = []
         lines: list[str] = []
         idx = 1
+        skipped = 0
         for el in elements:
+            el_type = el.get("type", "") or ""
             text = (el.get("text") or "").strip()
             el_id = (el.get("id") or "").strip()
             desc = (el.get("description") or "").strip()
             clickable = bool(el.get("clickable"))
-            el_type = el.get("type", "") or ""
+            checked = bool(el.get("checked"))
+            selected = bool(el.get("selected"))
+            bounds_raw = el.get("bounds", "") or ""
 
-            # Skip pure containers with no identifying info and no interaction.
-            if not (text or el_id or desc or clickable):
+            # Rule 0: drop status-bar / system overlay elements.
+            if self._is_status_bar(el):
+                skipped += 1
                 continue
 
-            bounds = el.get("bounds", "") or ""
+            # Rule 1: drop pure containers unless they're tappable.
+            if el_type in self._PURE_CONTAINER_TYPES and not clickable:
+                skipped += 1
+                continue
+
+            # Rule 2: drop elements with no signal at all.
+            if not (text or el_id or desc or clickable or checked or selected):
+                skipped += 1
+                continue
+
+            # Rule 3: drop zero-size / unparseable bounds.
+            bounds_scaled = self._rescale_bounds(bounds_raw, native_w, native_h, screen_w, screen_h)
+            if bounds_scaled is None:
+                skipped += 1
+                continue
+
             label = text or desc or el_id
             flags = []
             if clickable:
                 flags.append("clickable")
-            if el.get("checked"):
+            if checked:
                 flags.append("checked")
-            if el.get("selected"):
+            if selected:
                 flags.append("selected")
             flag_str = f" [{','.join(flags)}]" if flags else ""
-
-            # Build a display id to help the LLM disambiguate when text is empty.
             id_hint = f" id={el_id}" if el_id else ""
 
             lines.append(
-                f"{idx}. {el_type}: {label!r}{id_hint} - bounds={bounds}{flag_str}"
+                f"{idx}. {el_type}: {label!r}{id_hint} - bounds={bounds_scaled}{flag_str}"
             )
 
-            # Carry a stable index field for downstream tools/locators.
             el_copy = dict(el)
             el_copy["index"] = idx
+            el_copy["bounds"] = bounds_scaled  # rescaled for tap_element math
             out.append(el_copy)
             idx += 1
 
             if self.max_elements and len(out) >= self.max_elements:
-                lines.append(f"... ({len(elements) - len(out)} more elements truncated)")
+                lines.append(
+                    f"... ({len(elements) - len(out) - skipped} more elements after this truncated)"
+                )
                 break
 
         return out, "\n".join(lines)
+
+    @staticmethod
+    def _rescale_bounds(
+        bounds_str: str, nw: int, nh: int, sw: int, sh: int
+    ) -> str | None:
+        """Rescale hmdriver2 native bounds "[l,t][r,b]" to screenshot space.
+
+        Returns bounds in mobilerun's canonical "l,t,r,b" comma format (NO
+        brackets) so downstream code like ``UIState.get_element_coords``
+        (which splits on "," and maps to int) can parse it directly. Returns
+        None if unparseable / zero-size.
+        """
+        import re
+
+        nums = re.findall(r"\d+", bounds_str)
+        if len(nums) < 4:
+            return None
+        try:
+            l, t, r, b = (int(nums[0]), int(nums[1]), int(nums[2]), int(nums[3]))
+        except ValueError:
+            return None
+        if r <= l or b <= t:
+            return None
+        if nw == sw and nh == sh:
+            return f"{l},{t},{r},{b}"
+        sx = sw / nw if nw else 1.0
+        sy = sh / nh if nh else 1.0
+        return (
+            f"{int(round(l * sx))},{int(round(t * sy))},"
+            f"{int(round(r * sx))},{int(round(b * sy))}"
+        )
+
+    @staticmethod
+    def _driver_native_width(elements: list[dict]) -> int:
+        """Recover native screen width from the widest element's bounds."""
+        import re
+
+        best = 0
+        for el in elements:
+            nums = re.findall(r"\d+", el.get("bounds", "") or "")
+            if len(nums) >= 4:
+                best = max(best, int(nums[2]))
+        return best
+
+    @staticmethod
+    def _driver_native_height(elements: list[dict]) -> int:
+        """Recover native screen height from the tallest element's bounds."""
+        import re
+
+        best = 0
+        for el in elements:
+            nums = re.findall(r"\d+", el.get("bounds", "") or "")
+            if len(nums) >= 4:
+                best = max(best, int(nums[3]))
+        return best
